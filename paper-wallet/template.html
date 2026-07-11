@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FireCash Paper Wallet (offline)</title>
+<style>
+  :root{
+    --bg:#0b0b0f; --surface:#16161d; --surface2:#1c1c26; --border:#2a2a35;
+    --ink:#f6f6f8; --muted:#9090a0; --ember:#ff6b35; --bad:#f2604a; --good:#35c46a;
+    --mono:"Roboto Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5}
+  .wrap{max-width:840px;margin:0 auto;padding:28px 20px 64px}
+  h1{font-size:26px;margin:0 0 4px}
+  h1 .em{color:var(--ember)}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin:16px 0}
+  .warn{border-color:var(--bad);background:rgba(242,96,74,.08)}
+  .warn b{color:var(--bad)}
+  .ok{border-color:var(--good);background:rgba(53,196,106,.07)}
+  button{font:inherit;font-weight:600;cursor:pointer;border-radius:12px;border:1px solid var(--border);
+    background:var(--surface2);color:var(--ink);padding:11px 18px}
+  button.primary{background:var(--ember);border-color:var(--ember);color:#160b06}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  label{color:var(--muted);font-size:13px}
+  select,input[type=text]{font:inherit;background:var(--surface2);color:var(--ink);
+    border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+  input[type=text]{width:100%;font-family:var(--mono);font-size:13px}
+  .field{margin:14px 0}
+  .field .k{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  .val{font-family:var(--mono);font-size:15px;word-break:break-all;background:var(--bg);
+    border:1px solid var(--border);border-radius:10px;padding:12px}
+  .secret{position:relative}
+  .secret.hidden .val{filter:blur(7px);user-select:none}
+  .secret .peek{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+  .secret:not(.hidden) .peek{display:none}
+  .qrs{display:flex;gap:28px;flex-wrap:wrap;margin-top:6px}
+  .qr{text-align:center}
+  .qr svg{width:180px;height:180px;background:#fff;padding:8px;border-radius:8px}
+  .qr .cap{font-size:12px;color:var(--muted);margin-top:6px}
+  .muted{color:var(--muted);font-size:13px}
+  code{font-family:var(--mono);background:var(--surface2);padding:1px 5px;border-radius:5px}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:8px}
+  #err{color:var(--bad);font-family:var(--mono);font-size:13px;white-space:pre-wrap}
+  @media print{
+    body{background:#fff;color:#000}
+    .noprint{display:none!important}
+    .card{border-color:#bbb;background:#fff;break-inside:avoid}
+    .val{background:#fff;border-color:#999;color:#000}
+    .secret.hidden .val{filter:none;user-select:auto}
+    .secret .peek{display:none!important}
+    .qr svg{border:1px solid #999}
+    a{color:#000}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>FireCash <span class="em">Paper Wallet</span></h1>
+  <p class="sub">Generate a shielded (Orchard) FireCash wallet entirely on this device. Keys never leave the page.</p>
+
+  <div class="card warn noprint">
+    <b>⚠️ Use this OFFLINE.</b> For real cold storage: save this file, disconnect from the
+    internet (or use an air-gapped machine), then open it. Anyone who sees the
+    <b>recovery seed</b> can spend the funds — it is the whole secret. This page makes
+    <b>no network requests</b>; the address is computed locally in WebAssembly.
+    Print or hand-copy the seed and store it offline. Do not photograph it with a
+    cloud-synced phone.
+  </div>
+
+  <div class="card noprint">
+    <div class="row">
+      <div>
+        <label for="net">Network</label><br/>
+        <select id="net">
+          <option value="mainnet" selected>mainnet (firecash:)</option>
+          <option value="testnet">testnet (firecashtest:)</option>
+        </select>
+      </div>
+      <div style="flex:1"></div>
+      <button id="gen" class="primary" disabled>Loading…</button>
+      <button id="print" disabled>Print</button>
+    </div>
+    <div class="hint">Or derive the address for an existing seed (to verify a backup):</div>
+    <div class="row" style="margin-top:8px">
+      <input id="seedin" type="text" placeholder="existing 64-hex-char seed…" autocomplete="off" spellcheck="false" />
+      <button id="derive" disabled>Derive address</button>
+    </div>
+    <div id="err"></div>
+  </div>
+
+  <div id="out" style="display:none">
+    <div class="card">
+      <div class="field">
+        <div class="k">Shielded address (safe to share — receive to this)</div>
+        <div class="val" id="addr"></div>
+      </div>
+      <div class="field secret hidden" id="seedbox">
+        <div class="k">Recovery seed — SECRET (back this up offline)</div>
+        <div class="val" id="seed"></div>
+        <div class="peek noprint"><button id="reveal">Reveal seed</button></div>
+      </div>
+      <div class="qrs">
+        <div class="qr"><div id="qraddr"></div><div class="cap">Address</div></div>
+        <div class="qr secret hidden" id="qrseedbox"><div id="qrseed"></div><div class="cap">Seed (secret)</div></div>
+      </div>
+      <p class="hint">Restore later by importing the seed into a FireCash wallet
+        (<code>shielded-pay</code>, walletd, or the web/mobile wallet). The address is
+        deterministically derived from the seed, so it can always be recomputed.</p>
+    </div>
+  </div>
+
+  <p class="muted noprint" style="margin-top:24px">
+    Offline · self-contained · no dependencies. Verify integrity by opening this file with
+    your browser's network tab: it should issue zero requests. Source:
+    <code>firecash-signer</code> compiled to WebAssembly.
+  </p>
+</div>
+
+<!-- Inlined QR generator (qrcode-generator, MIT — Kazuhiko Arase) -->
+<script>/*__QRLIB__*/</script>
+
+<!-- Inlined firecash-signer WASM + wasm-bindgen glue, then the app -->
+<script type="module">
+/*__GLUE__*/
+
+const WASM_B64 = "__WASM_B64__";
+
+const $ = (id) => document.getElementById(id);
+const err = (m) => { $("err").textContent = m || ""; };
+
+function drawQR(elId, text) {
+  const qr = qrcode(0, "M");
+  qr.addData(text);
+  qr.make();
+  $(elId).innerHTML = qr.createSvgTag(4, 0);
+}
+
+let current = null; // {seed_hex, address}
+
+function render(w) {
+  current = w;
+  $("addr").textContent = w.address;
+  $("seed").textContent = w.seed_hex;
+  drawQR("qraddr", w.address);
+  drawQR("qrseed", w.seed_hex);
+  // Re-hide the seed each time a new wallet is generated.
+  $("seedbox").classList.add("hidden");
+  $("qrseedbox").classList.add("hidden");
+  $("out").style.display = "block";
+  err("");
+}
+
+async function boot() {
+  try {
+    const bytes = Uint8Array.from(atob(WASM_B64), (c) => c.charCodeAt(0));
+    await __wbg_init({ module_or_path: bytes });
+  } catch (e) {
+    err("Failed to load the signer: " + e);
+    return;
+  }
+  $("gen").disabled = false; $("gen").textContent = "Generate new wallet";
+  $("print").disabled = false; $("derive").disabled = false;
+
+  $("gen").onclick = () => {
+    try { render(new_wallet($("net").value)); }
+    catch (e) { err("Generate failed: " + e); }
+  };
+  $("derive").onclick = () => {
+    try {
+      const s = $("seedin").value.trim();
+      const address = address_from_seed(s, $("net").value);
+      render({ seed_hex: s, address });
+    } catch (e) { err("Derive failed: " + e); }
+  };
+  $("reveal").onclick = () => {
+    $("seedbox").classList.remove("hidden");
+    $("qrseedbox").classList.remove("hidden");
+  };
+  $("print").onclick = () => {
+    // Reveal the seed before printing so the backup is complete on paper.
+    $("seedbox").classList.remove("hidden");
+    $("qrseedbox").classList.remove("hidden");
+    window.print();
+  };
+}
+
+boot();
+</script>
+</body>
+</html>

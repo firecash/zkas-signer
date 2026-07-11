@@ -1,0 +1,25 @@
+[package]
+name = "firecash-signer"
+version = "0.1.0"
+edition = "2021"
+description = "WASM Orchard key primitives for FireCash: seed -> firecash: address, message sign/verify. No proving circuit — keys and signatures only, so it stays small and runs in a browser."
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# shielded-core WITHOUT the `circuit` feature: key derivation, address, and
+# RedPallas message signing only — no halo2 proving, so this stays WASM-small.
+kaspa-shielded-core = { path = "../rusty-kaspa/shielded-core", default-features = false }
+kaspa-addresses = { path = "../rusty-kaspa/crypto/addresses" }
+wasm-bindgen = "0.2"
+rand = "0.8"
+hex = "0.4"
+# Force getrandom's browser backend on wasm so `OsRng` works in-page. A no-op on
+# native targets, which use the OS CSPRNG regardless.
+getrandom = { version = "0.2", features = ["js"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
