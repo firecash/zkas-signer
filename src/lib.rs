@@ -19,7 +19,7 @@
 //! the API dependency-light and the native unit tests ergonomic.
 
 use kaspa_addresses::{Address, Prefix, Version};
-use kaspa_shielded_core::message::{sign_message, verify_message, FVK_LEN, SIG_LEN};
+use kaspa_shielded_core::message::{sign_message, sign_spend_auth_from_seed, verify_message, FVK_LEN, SIG_LEN};
 use kaspa_shielded_core::orchard_recipient_bytes;
 use kaspa_shielded_core::wallet::address_bytes_from_seed;
 use wasm_bindgen::prelude::*;
@@ -58,6 +58,11 @@ fn parse_seed(seed_hex: &str) -> Result<[u8; 32], String> {
     let bytes = hex::decode(seed_hex.trim()).map_err(|e| format!("seed is not hex: {e}"))?;
     <[u8; 32]>::try_from(bytes.as_slice())
         .map_err(|_| "seed must be exactly 32 bytes (64 hex chars)".to_string())
+}
+
+fn parse32(hex_str: &str, what: &str) -> Result<[u8; 32], String> {
+    let bytes = hex::decode(hex_str.trim()).map_err(|e| format!("{what} is not hex: {e}"))?;
+    <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| format!("{what} must be exactly 32 bytes"))
 }
 
 fn address_string(prefix: Prefix, raw: &[u8; 43]) -> String {
@@ -124,6 +129,19 @@ pub fn verify(address: &str, message: &str, signature_hex: &str) -> Result<bool,
     let sig: [u8; SIG_LEN] = blob[FVK_LEN..].try_into().expect("checked length");
 
     Ok(verify_message(&raw, tag.as_bytes(), message.as_bytes(), &fvk, &sig).is_ok())
+}
+
+/// Device half of a **non-custodial payment**. Given the wallet seed and, from the
+/// server's `prepare` response, a spend's `alpha` randomizer and the payment `sighash`,
+/// returns the 64-byte RedPallas spend-auth signature (hex). The seed never leaves the
+/// device; the server applies this signature and broadcasts. No proving circuit.
+#[wasm_bindgen]
+pub fn sign_spend_auth(seed_hex: &str, alpha_hex: &str, sighash_hex: &str) -> Result<String, String> {
+    let seed = parse_seed(seed_hex)?;
+    let alpha = parse32(alpha_hex, "alpha")?;
+    let sighash = parse32(sighash_hex, "sighash")?;
+    let sig = sign_spend_auth_from_seed(seed, alpha, sighash).ok_or_else(|| "invalid seed or alpha".to_string())?;
+    Ok(hex::encode(sig))
 }
 
 #[cfg(test)]
