@@ -19,7 +19,9 @@
 //! the API dependency-light and the native unit tests ergonomic.
 
 use kaspa_addresses::{Address, Prefix, Version};
-use kaspa_shielded_core::message::{sign_message, sign_spend_auth_from_seed, verify_message, FVK_LEN, SIG_LEN};
+use kaspa_shielded_core::message::{
+    fvk_bytes_from_seed, sign_message, sign_spend_auth_from_seed, verify_message, FVK_LEN, SIG_LEN,
+};
 use kaspa_shielded_core::orchard_recipient_bytes;
 use kaspa_shielded_core::wallet::address_bytes_from_seed;
 use wasm_bindgen::prelude::*;
@@ -129,6 +131,16 @@ pub fn verify(address: &str, message: &str, signature_hex: &str) -> Result<bool,
     let sig: [u8; SIG_LEN] = blob[FVK_LEN..].try_into().expect("checked length");
 
     Ok(verify_message(&raw, tag.as_bytes(), message.as_bytes(), &fvk, &sig).is_ok())
+}
+
+/// The wallet's full viewing key (`ak ‖ nk ‖ rivk`, 96 bytes) as hex, derived from
+/// the seed on-device. Send this to the daemon's non-custodial `/prepare` endpoint so
+/// it can scan watch-only and build the payment proof. Grants viewing, not spend.
+#[wasm_bindgen]
+pub fn fvk_hex(seed_hex: &str) -> Result<String, String> {
+    let seed = parse_seed(seed_hex)?;
+    let fvk = fvk_bytes_from_seed(seed).ok_or_else(|| "seed is not a valid Orchard spending key".to_string())?;
+    Ok(hex::encode(fvk))
 }
 
 /// Device half of a **non-custodial payment**. Given the wallet seed and, from the
