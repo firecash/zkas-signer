@@ -156,6 +156,126 @@ pub fn sign_spend_auth(seed_hex: &str, alpha_hex: &str, sighash_hex: &str) -> Re
     Ok(hex::encode(sig))
 }
 
+/// The FireCash mainnet genesis hash — the shielded sighash's network domain. Pinned
+/// here (not taken from the server) so a malicious daemon cannot make the device sign
+/// for a different chain, and cannot alter the domain the sighash binds to. Must match
+/// `MAINNET_PARAMS.genesis.hash` in consensus.
+const MAINNET_GENESIS: [u8; 32] = [
+    0xd6, 0xf3, 0xa5, 0x89, 0xe1, 0x97, 0x2a, 0x65, 0xa8, 0x67, 0x2b, 0xa0, 0x94, 0x67, 0x74, 0x9a, 0xba, 0xe5, 0x20, 0xa5,
+    0xaf, 0x2e, 0x5d, 0x1d, 0xee, 0xa7, 0xe4, 0x3d, 0x95, 0x90, 0xa6, 0xc6,
+];
+
+/// The `shielded_sighash_context` of the payment transaction a bundle is carried in —
+/// the bytes `payment_tx(vec![]).shielded_sighash_context()` produces. Deterministic
+/// and network-independent (transaction version + empty envelope), pinned so the device
+/// recomputes the exact sighash the node will check.
+const PAYMENT_TX_CONTEXT: &[u8] = &[0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+fn parse43(hex_str: &str, name: &str) -> Result<[u8; 43], String> {
+    let b = hex::decode(hex_str.trim()).map_err(|_| format!("{name} is not valid hex"))?;
+    b.try_into().map_err(|_| format!("{name} must be 43 bytes"))
+}
+
+/// **The anti-blind-signing entry point** for the non-custodial send.
+///
+/// Given the server's `prepare` response, this VERIFIES on the device — using only the
+/// wallet's own viewing key — that the unsigned `bundle_hex` really pays `to` the amount
+/// `amount_sompi` for a fee of `fee_sompi`, with any other output being change back to
+/// this wallet. Only if that holds does it recompute the sighash **from the verified
+/// bundle itself** (never trusting a server-supplied hash or network domain) and return
+/// the RedPallas spend-auth signatures.
+///
+/// `disclosure_json` is the `disclosure` array from `prepare`, `alphas_json` its
+/// `spend_auth` array (`[{index, alpha}]`). A malicious server cannot get a signature
+/// for anything but the payment the user asked for: any lie fails a note or value
+/// commitment here, and a bundle that dodges the checks won't match the sighash this
+/// function signs. Returns `[{index, sig}]` JSON on success, or throws with the reason.
+#[wasm_bindgen]
+pub fn verify_and_sign_payment(
+    seed_hex: &str,
+    network: &str,
+    to_address: &str,
+    amount_sompi: u64,
+    fee_sompi: u64,
+    bundle_hex: &str,
+    disclosure_json: &str,
+    alphas_json: &str,
+) -> Result<String, String> {
+    use kaspa_shielded_core::bundle::ShieldedBundle;
+    use kaspa_shielded_core::message::fvk_bytes_from_seed;
+    use kaspa_shielded_core::payment_check::{check_prepared_payment, ActionDisclosure};
+    use kaspa_shielded_core::verify::sighash;
+    use orchard::keys::FullViewingKey;
+
+    let seed = parse_seed(seed_hex)?;
+    // Decode the recipient from the address the USER typed — never from the server —
+    // so the device binds the payment to the intended destination.
+    let to_addr = Address::try_from(to_address.trim()).map_err(|e| format!("invalid recipient address: {e}"))?;
+    let to = orchard_recipient_bytes(&to_addr).ok_or_else(|| "recipient is not a shielded Orchard address".to_string())?;
+
+    let genesis = match network {
+        "mainnet" => MAINNET_GENESIS,
+        other => return Err(format!("unknown network {other}; only mainnet is pinned for on-device verification")),
+    };
+
+    let bundle_bytes = hex::decode(bundle_hex.trim()).map_err(|_| "bundle_hex is not valid hex".to_string())?;
+    let bundle = ShieldedBundle::from_bytes(&bundle_bytes).map_err(|e| format!("bundle_hex does not decode: {e:?}"))?;
+
+    // Reconstruct the FVK the payment was built for, from the seed on this device.
+    let fvk_bytes = fvk_bytes_from_seed(seed).ok_or_else(|| "seed is not a valid Orchard spending key".to_string())?;
+    let fvk = FullViewingKey::from_bytes(&fvk_bytes).ok_or_else(|| "internal: bad fvk".to_string())?;
+
+    // Parse the server's disclosure.
+    #[derive(serde::Deserialize)]
+    struct Disc {
+        spend_value: u64,
+        out_value: u64,
+        out_recipient: String,
+        out_rseed: String,
+        rcv: String,
+    }
+    let discs: Vec<Disc> = serde_json::from_str(disclosure_json).map_err(|e| format!("bad disclosure json: {e}"))?;
+    let disclosure: Vec<ActionDisclosure> = discs
+        .into_iter()
+        .map(|d| {
+            Ok(ActionDisclosure {
+                spend_value: d.spend_value,
+                out_value: d.out_value,
+                out_recipient: parse43(&d.out_recipient, "out_recipient")?,
+                out_rseed: parse32(&d.out_rseed, "out_rseed")?,
+                rcv: parse32(&d.rcv, "rcv")?,
+            })
+        })
+        .collect::<Result<_, String>>()?;
+
+    // THE CHECK: does this bundle pay exactly what the user asked?
+    check_prepared_payment(&bundle, &disclosure, &fvk, &to, amount_sompi, fee_sompi)
+        .map_err(|e| format!("refusing to sign: {e}"))?;
+
+    // Recompute the sighash from the VERIFIED bundle — signing a server-supplied hash
+    // would let it verify-pass one bundle and finalize another.
+    let msg = sighash(&bundle, &genesis, PAYMENT_TX_CONTEXT);
+
+    #[derive(serde::Deserialize)]
+    struct AlphaReq {
+        index: usize,
+        alpha: String,
+    }
+    #[derive(serde::Serialize)]
+    struct SigOut {
+        index: usize,
+        sig: String,
+    }
+    let reqs: Vec<AlphaReq> = serde_json::from_str(alphas_json).map_err(|e| format!("bad spend_auth json: {e}"))?;
+    let mut out = Vec::with_capacity(reqs.len());
+    for r in reqs {
+        let alpha = parse32(&r.alpha, "alpha")?;
+        let sig = sign_spend_auth_from_seed(seed, alpha, msg).ok_or_else(|| "invalid seed or alpha".to_string())?;
+        out.push(SigOut { index: r.index, sig: hex::encode(sig) });
+    }
+    serde_json::to_string(&out).map_err(|e| format!("serialize sigs: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
