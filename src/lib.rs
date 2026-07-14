@@ -1,7 +1,7 @@
-//! `firecash-signer` — client-side Orchard key primitives for FireCash.
+//! `zkas-signer` — client-side Orchard key primitives for ZKas.
 //!
 //! Compiled to WebAssembly, this runs entirely in the user's browser / device:
-//! it turns a 32-byte seed into a `firecash:` shielded address and signs/verifies
+//! it turns a 32-byte seed into a `zkas:` shielded address and signs/verifies
 //! ownership messages, **without** the Halo 2 proving circuit. That keeps the WASM
 //! small and lets keys never leave the device — the basis for the paper wallet,
 //! the on-device mobile signer, and non-custodial web-wallet claims.
@@ -32,7 +32,7 @@ pub struct Wallet {
     /// 32-byte spending seed, hex-encoded. **This is the secret** — whoever holds
     /// it controls the funds.
     pub seed_hex: String,
-    /// The `firecash:` shielded address derived from the seed.
+    /// The `zkas:` shielded address derived from the seed.
     pub address: String,
 }
 
@@ -73,7 +73,7 @@ fn address_string(prefix: Prefix, raw: &[u8; 43]) -> String {
 }
 
 /// Generate a brand-new wallet: a random 32-byte seed (browser CSPRNG) and its
-/// `firecash:` address. Retries the negligibly-rare case where a random seed is
+/// `zkas:` address. Retries the negligibly-rare case where a random seed is
 /// not a valid Orchard spending key.
 #[wasm_bindgen]
 pub fn new_wallet(network: &str) -> Result<Wallet, String> {
@@ -87,7 +87,7 @@ pub fn new_wallet(network: &str) -> Result<Wallet, String> {
     }
 }
 
-/// Derive the `firecash:` address for an existing seed on a network.
+/// Derive the `zkas:` address for an existing seed on a network.
 #[wasm_bindgen]
 pub fn address_from_seed(seed_hex: &str, network: &str) -> Result<String, String> {
     let prefix = prefix_from(network)?;
@@ -156,7 +156,7 @@ pub fn sign_spend_auth(seed_hex: &str, alpha_hex: &str, sighash_hex: &str) -> Re
     Ok(hex::encode(sig))
 }
 
-/// The FireCash mainnet genesis hash — the shielded sighash's network domain. Pinned
+/// The ZKas mainnet genesis hash — the shielded sighash's network domain. Pinned
 /// here (not taken from the server) so a malicious daemon cannot make the device sign
 /// for a different chain, and cannot alter the domain the sighash binds to. Must match
 /// `MAINNET_PARAMS.genesis.hash` in consensus.
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn new_wallet_roundtrips_address() {
         let w = new_wallet("mainnet").unwrap();
-        assert!(w.address.starts_with("firecash:"), "got {}", w.address);
+        assert!(w.address.starts_with("zkas:"), "got {}", w.address);
         // Re-deriving from the seed yields the same address (deterministic).
         let again = address_from_seed(&w.seed_hex, "mainnet").unwrap();
         assert_eq!(w.address, again);
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn testnet_address_prefix() {
         let w = new_wallet("testnet").unwrap();
-        assert!(w.address.starts_with("firecashtest:"), "got {}", w.address);
+        assert!(w.address.starts_with("zkastest:"), "got {}", w.address);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 name = "firecash-signer"
 version = "0.1.0"
 edition = "2021"
-description = "WASM Orchard key primitives for FireCash: seed -> firecash: address, message sign/verify. No proving circuit — keys and signatures only, so it stays small and runs in a browser."
+description = "WASM Orchard key primitives for ZKas: seed -> zkas: address, message sign/verify. No proving circuit — keys and signatures only, so it stays small and runs in a browser."
 license = "MIT OR Apache-2.0"
 
 [lib]
