@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 # RedPallas message signing only — no halo2 proving, so this stays WASM-small.
 kaspa-shielded-core = { path = "../rusty-kaspa/shielded-core", default-features = false }
 kaspa-addresses = { path = "../rusty-kaspa/crypto/addresses" }
+zkas-signer = { path = "../rusty-kaspa/sdk/signer" }
 wasm-bindgen = "0.2"
 rand = "0.8"
 hex = "0.4"

@@ -82,7 +82,10 @@ pub fn new_wallet(network: &str) -> Result<Wallet, String> {
         let mut seed = [0u8; 32];
         getrandom::getrandom(&mut seed).map_err(|e| format!("CSPRNG failed: {e}"))?;
         if let Some(raw) = address_bytes_from_seed(seed) {
-            return Ok(Wallet { seed_hex: hex::encode(seed), address: address_string(prefix, &raw) });
+            return Ok(Wallet {
+                seed_hex: hex::encode(seed),
+                address: address_string(prefix, &raw),
+            });
         }
     }
 }
@@ -110,7 +113,10 @@ pub fn sign(seed_hex: &str, network: &str, message: &str) -> Result<Signature, S
     let mut blob = Vec::with_capacity(FVK_LEN + SIG_LEN);
     blob.extend_from_slice(&signed.fvk);
     blob.extend_from_slice(&signed.sig);
-    Ok(Signature { address: address_string(prefix, &signed.address), signature_hex: hex::encode(blob) })
+    Ok(Signature {
+        address: address_string(prefix, &signed.address),
+        signature_hex: hex::encode(blob),
+    })
 }
 
 /// Verify that `signature_hex` (`fvk ‖ sig`) proves control of `address` over
@@ -123,9 +129,14 @@ pub fn verify(address: &str, message: &str, signature_hex: &str) -> Result<bool,
     let raw = orchard_recipient_bytes(&addr)
         .ok_or_else(|| "address is not a shielded Orchard address".to_string())?;
 
-    let blob = hex::decode(signature_hex.trim()).map_err(|e| format!("signature is not hex: {e}"))?;
+    let blob =
+        hex::decode(signature_hex.trim()).map_err(|e| format!("signature is not hex: {e}"))?;
     if blob.len() != FVK_LEN + SIG_LEN {
-        return Err(format!("signature must be {} bytes (fvk||sig); got {}", FVK_LEN + SIG_LEN, blob.len()));
+        return Err(format!(
+            "signature must be {} bytes (fvk||sig); got {}",
+            FVK_LEN + SIG_LEN,
+            blob.len()
+        ));
     }
     let fvk: [u8; FVK_LEN] = blob[..FVK_LEN].try_into().expect("checked length");
     let sig: [u8; SIG_LEN] = blob[FVK_LEN..].try_into().expect("checked length");
@@ -139,7 +150,8 @@ pub fn verify(address: &str, message: &str, signature_hex: &str) -> Result<bool,
 #[wasm_bindgen]
 pub fn fvk_hex(seed_hex: &str) -> Result<String, String> {
     let seed = parse_seed(seed_hex)?;
-    let fvk = fvk_bytes_from_seed(seed).ok_or_else(|| "seed is not a valid Orchard spending key".to_string())?;
+    let fvk = fvk_bytes_from_seed(seed)
+        .ok_or_else(|| "seed is not a valid Orchard spending key".to_string())?;
     Ok(hex::encode(fvk))
 }
 
@@ -148,11 +160,16 @@ pub fn fvk_hex(seed_hex: &str) -> Result<String, String> {
 /// returns the 64-byte RedPallas spend-auth signature (hex). The seed never leaves the
 /// device; the server applies this signature and broadcasts. No proving circuit.
 #[wasm_bindgen]
-pub fn sign_spend_auth(seed_hex: &str, alpha_hex: &str, sighash_hex: &str) -> Result<String, String> {
+pub fn sign_spend_auth(
+    seed_hex: &str,
+    alpha_hex: &str,
+    sighash_hex: &str,
+) -> Result<String, String> {
     let seed = parse_seed(seed_hex)?;
     let alpha = parse32(alpha_hex, "alpha")?;
     let sighash = parse32(sighash_hex, "sighash")?;
-    let sig = sign_spend_auth_from_seed(seed, alpha, sighash).ok_or_else(|| "invalid seed or alpha".to_string())?;
+    let sig = sign_spend_auth_from_seed(seed, alpha, sighash)
+        .ok_or_else(|| "invalid seed or alpha".to_string())?;
     Ok(hex::encode(sig))
 }
 
@@ -161,15 +178,19 @@ pub fn sign_spend_auth(seed_hex: &str, alpha_hex: &str, sighash_hex: &str) -> Re
 /// for a different chain, and cannot alter the domain the sighash binds to. Must match
 /// `MAINNET_PARAMS.genesis.hash` in consensus.
 const MAINNET_GENESIS: [u8; 32] = [
-    0xd6, 0xf3, 0xa5, 0x89, 0xe1, 0x97, 0x2a, 0x65, 0xa8, 0x67, 0x2b, 0xa0, 0x94, 0x67, 0x74, 0x9a, 0xba, 0xe5, 0x20, 0xa5,
-    0xaf, 0x2e, 0x5d, 0x1d, 0xee, 0xa7, 0xe4, 0x3d, 0x95, 0x90, 0xa6, 0xc6,
+    0xd6, 0xf3, 0xa5, 0x89, 0xe1, 0x97, 0x2a, 0x65, 0xa8, 0x67, 0x2b, 0xa0, 0x94, 0x67, 0x74, 0x9a,
+    0xba, 0xe5, 0x20, 0xa5, 0xaf, 0x2e, 0x5d, 0x1d, 0xee, 0xa7, 0xe4, 0x3d, 0x95, 0x90, 0xa6, 0xc6,
 ];
 
 /// The `shielded_sighash_context` of the payment transaction a bundle is carried in —
 /// the bytes `payment_tx(vec![]).shielded_sighash_context()` produces. Deterministic
 /// and network-independent (transaction version + empty envelope), pinned so the device
 /// recomputes the exact sighash the node will check.
-const PAYMENT_TX_CONTEXT: &[u8] = &[0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+const PAYMENT_TX_CONTEXT: &[u8] = &[
+    0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
 
 fn parse43(hex_str: &str, name: &str) -> Result<[u8; 43], String> {
     let b = hex::decode(hex_str.trim()).map_err(|_| format!("{name} is not valid hex"))?;
@@ -180,9 +201,13 @@ fn parse43(hex_str: &str, name: &str) -> Result<[u8; 43], String> {
 ///
 /// Given the server's `prepare` response, this VERIFIES on the device — using only the
 /// wallet's own viewing key — that the unsigned `bundle_hex` really pays `to` the amount
-/// `amount_sompi` for a fee of `fee_sompi`, with any other output being change back to
-/// this wallet. Only if that holds does it recompute the sighash **from the verified
-/// bundle itself** (never trusting a server-supplied hash or network domain) and return
+/// `amount_sompi`, with any other output being change back to this wallet, and that the
+/// fee the bundle actually pays (its public value balance — **never** a number the
+/// server reported) is positive and at most `max_fee_sompi`. Without that ceiling a
+/// malicious daemon could burn the wallet's entire change as "fee" — collectable by a
+/// miner, plausibly the daemon's own pool — while every commitment check still passed.
+/// Only if all of that holds does it recompute the sighash **from the verified bundle
+/// itself** (never trusting a server-supplied hash or network domain) and return
 /// the RedPallas spend-auth signatures.
 ///
 /// `disclosure_json` is the `disclosure` array from `prepare`, `alphas_json` its
@@ -196,34 +221,36 @@ pub fn verify_and_sign_payment(
     network: &str,
     to_address: &str,
     amount_sompi: u64,
-    fee_sompi: u64,
+    max_fee_sompi: u64,
     bundle_hex: &str,
     disclosure_json: &str,
     alphas_json: &str,
 ) -> Result<String, String> {
     use kaspa_shielded_core::bundle::ShieldedBundle;
-    use kaspa_shielded_core::message::fvk_bytes_from_seed;
-    use kaspa_shielded_core::payment_check::{check_prepared_payment, ActionDisclosure};
-    use kaspa_shielded_core::verify::sighash;
-    use orchard::keys::FullViewingKey;
+    use kaspa_shielded_core::payment_check::ActionDisclosure;
+    use zkas_signer::{ClaimedIntent, PaymentIntent, PreparedPayment, SoftwareSigner, SpendAuthRequest};
 
     let seed = parse_seed(seed_hex)?;
     // Decode the recipient from the address the USER typed — never from the server —
     // so the device binds the payment to the intended destination.
-    let to_addr = Address::try_from(to_address.trim()).map_err(|e| format!("invalid recipient address: {e}"))?;
-    let to = orchard_recipient_bytes(&to_addr).ok_or_else(|| "recipient is not a shielded Orchard address".to_string())?;
+    let to_addr = Address::try_from(to_address.trim())
+        .map_err(|e| format!("invalid recipient address: {e}"))?;
+    let to = orchard_recipient_bytes(&to_addr)
+        .ok_or_else(|| "recipient is not a shielded Orchard address".to_string())?;
 
     let genesis = match network {
         "mainnet" => MAINNET_GENESIS,
-        other => return Err(format!("unknown network {other}; only mainnet is pinned for on-device verification")),
+        other => {
+            return Err(format!(
+                "unknown network {other}; only mainnet is pinned for on-device verification"
+            ))
+        }
     };
 
-    let bundle_bytes = hex::decode(bundle_hex.trim()).map_err(|_| "bundle_hex is not valid hex".to_string())?;
-    let bundle = ShieldedBundle::from_bytes(&bundle_bytes).map_err(|e| format!("bundle_hex does not decode: {e:?}"))?;
-
-    // Reconstruct the FVK the payment was built for, from the seed on this device.
-    let fvk_bytes = fvk_bytes_from_seed(seed).ok_or_else(|| "seed is not a valid Orchard spending key".to_string())?;
-    let fvk = FullViewingKey::from_bytes(&fvk_bytes).ok_or_else(|| "internal: bad fvk".to_string())?;
+    let bundle_bytes =
+        hex::decode(bundle_hex.trim()).map_err(|_| "bundle_hex is not valid hex".to_string())?;
+    let bundle = ShieldedBundle::from_bytes(&bundle_bytes)
+        .map_err(|e| format!("bundle_hex does not decode: {e:?}"))?;
 
     // Parse the server's disclosure.
     #[derive(serde::Deserialize)]
@@ -234,7 +261,8 @@ pub fn verify_and_sign_payment(
         out_rseed: String,
         rcv: String,
     }
-    let discs: Vec<Disc> = serde_json::from_str(disclosure_json).map_err(|e| format!("bad disclosure json: {e}"))?;
+    let discs: Vec<Disc> =
+        serde_json::from_str(disclosure_json).map_err(|e| format!("bad disclosure json: {e}"))?;
     let disclosure: Vec<ActionDisclosure> = discs
         .into_iter()
         .map(|d| {
@@ -248,14 +276,6 @@ pub fn verify_and_sign_payment(
         })
         .collect::<Result<_, String>>()?;
 
-    // THE CHECK: does this bundle pay exactly what the user asked?
-    check_prepared_payment(&bundle, &disclosure, &fvk, &to, amount_sompi, fee_sompi)
-        .map_err(|e| format!("refusing to sign: {e}"))?;
-
-    // Recompute the sighash from the VERIFIED bundle — signing a server-supplied hash
-    // would let it verify-pass one bundle and finalize another.
-    let msg = sighash(&bundle, &genesis, PAYMENT_TX_CONTEXT);
-
     #[derive(serde::Deserialize)]
     struct AlphaReq {
         index: usize,
@@ -266,13 +286,54 @@ pub fn verify_and_sign_payment(
         index: usize,
         sig: String,
     }
-    let reqs: Vec<AlphaReq> = serde_json::from_str(alphas_json).map_err(|e| format!("bad spend_auth json: {e}"))?;
-    let mut out = Vec::with_capacity(reqs.len());
-    for r in reqs {
-        let alpha = parse32(&r.alpha, "alpha")?;
-        let sig = sign_spend_auth_from_seed(seed, alpha, msg).ok_or_else(|| "invalid seed or alpha".to_string())?;
-        out.push(SigOut { index: r.index, sig: hex::encode(sig) });
-    }
+    let reqs: Vec<AlphaReq> =
+        serde_json::from_str(alphas_json).map_err(|e| format!("bad spend_auth json: {e}"))?;
+    let spend_auth = reqs
+        .into_iter()
+        .map(|request| {
+            Ok(SpendAuthRequest {
+                action_index: request.index,
+                alpha: parse32(&request.alpha, "alpha")?,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    // All security policy lives in the shared SDK signer. This WASM crate only
+    // decodes the existing JSON/hex compatibility format and encodes the result.
+    // In this compatibility path the "claims" are the user's own inputs plus the
+    // fee the bundle itself pays, so the signer's claims-vs-intent cross-check is
+    // trivially satisfied; the checks that bite are the commitment checks and the
+    // max-fee ceiling.
+    let signer = SoftwareSigner::new(seed).map_err(|e| e.to_string())?;
+    let bundle_fee = u64::try_from(bundle.value_balance).unwrap_or(0);
+    let prepared = PreparedPayment {
+        version: PreparedPayment::VERSION,
+        network_domain: genesis,
+        tx_context: PAYMENT_TX_CONTEXT.to_vec(),
+        bundle,
+        disclosure,
+        spend_auth,
+        claimed: ClaimedIntent {
+            recipient: to,
+            amount: amount_sompi,
+            fee: bundle_fee,
+        },
+    };
+    let intent = PaymentIntent {
+        recipient: to,
+        amount: amount_sompi,
+        max_fee: max_fee_sompi,
+    };
+    let signatures = signer
+        .verify_and_sign(&genesis, &intent, &prepared)
+        .map_err(|e| e.to_string())?;
+    let out: Vec<SigOut> = signatures
+        .into_iter()
+        .map(|signature| SigOut {
+            index: signature.action_index,
+            sig: hex::encode(signature.signature),
+        })
+        .collect();
     serde_json::to_string(&out).map_err(|e| format!("serialize sigs: {e}"))
 }
 
