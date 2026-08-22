@@ -20,6 +20,12 @@ hex = "0.4"
 orchard = { version = "0.14", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Recovery phrases. BIP-39 for the wordlist/checksum (the scheme every wallet and
+# hardware device already speaks) and ZIP-32 for shielded HD derivation, which is
+# what Zcash's own wallets use for Orchard. Both are the mature, widely-audited
+# implementations; `orchard` already depends on zip32 internally.
+bip39 = { version = "2", default-features = false, features = ["std"] }
+zip32 = { version = "0.2", default-features = false }
 # Force getrandom's browser backend on wasm so `OsRng` works in-page. A no-op on
 # native targets, which use the OS CSPRNG regardless.
 getrandom = { version = "0.2", features = ["js"] }

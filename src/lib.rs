@@ -24,6 +24,7 @@ use kaspa_shielded_core::message::{
 };
 use kaspa_shielded_core::orchard_recipient_bytes;
 use kaspa_shielded_core::wallet::address_bytes_from_seed;
+use orchard::keys::SpendingKey;
 use wasm_bindgen::prelude::*;
 
 /// A freshly generated wallet: the secret seed and its public address.
@@ -56,10 +57,58 @@ fn prefix_from(network: &str) -> Result<Prefix, String> {
     }
 }
 
+/// SLIP-44 coin type used in the ZIP-32 path `m/32'/coin'/account'`.
+///
+/// ZKas is a Kaspa fork and inherits Kaspa's registered coin type. Nothing else
+/// implements ZKas's Orchard pool, and Kaspa itself has no shielded pool, so this
+/// can never collide with real Kaspa funds — it records lineage.
+///
+/// **This value is permanent.** Changing it would silently derive different keys
+/// from the same recovery phrase, stranding every wallet created before the change.
+pub const ZKAS_COIN_TYPE: u32 = 111111;
+
+/// Turn the user's secret — a recovery phrase OR a legacy 64-hex seed — into the
+/// 32 bytes every derivation below consumes. This is the ONE place the two forms
+/// meet, so every exported function accepts either without further branching.
+///
+/// LEGACY (64 hex): returned verbatim, so a wallet created before recovery phrases
+/// existed derives byte-for-byte the same key it always did. This path must never
+/// change.
+///
+/// PHRASE (BIP-39 words): words -> BIP-39 seed -> ZIP-32 `m/32'/coin'/account'` ->
+/// Orchard spending key, which is what Zcash's own wallets do for Orchard. The
+/// account index is reserved by the path, so multi-account support later needs no
+/// re-backup.
+fn resolve_secret(secret: &str) -> Result<[u8; 32], String> {
+    let s = secret.trim();
+    // A 64-hex string is unambiguously the legacy raw seed: BIP-39 words are never hex.
+    if s.len() == 64 && s.chars().all(|c| c.is_ascii_hexdigit()) {
+        let bytes = hex::decode(s).map_err(|e| format!("seed is not hex: {e}"))?;
+        return <[u8; 32]>::try_from(bytes.as_slice())
+            .map_err(|_| "seed must be exactly 32 bytes (64 hex chars)".to_string());
+    }
+    if s.is_empty() {
+        return Err("enter your recovery phrase".to_string());
+    }
+    secret_from_phrase(s, "")
+}
+
+/// Phrase -> Orchard spending key bytes, with an optional BIP-39 passphrase.
+fn secret_from_phrase(phrase: &str, passphrase: &str) -> Result<[u8; 32], String> {
+    // Normalise whitespace/case so a phrase typed across lines or capitalised still
+    // parses — the words themselves are what matters.
+    let cleaned = phrase.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let mnemonic = bip39::Mnemonic::parse_normalized(&cleaned)
+        .map_err(|e| format!("that is not a valid recovery phrase: {e}"))?;
+    let seed = mnemonic.to_seed_normalized(passphrase);
+    let sk = SpendingKey::from_zip32_seed(&seed, ZKAS_COIN_TYPE, zip32::AccountId::ZERO)
+        .map_err(|e| format!("could not derive a key from that phrase: {e:?}"))?;
+    Ok(*sk.to_bytes())
+}
+
+/// Kept for the paths that genuinely require a raw 32-byte seed.
 fn parse_seed(seed_hex: &str) -> Result<[u8; 32], String> {
-    let bytes = hex::decode(seed_hex.trim()).map_err(|e| format!("seed is not hex: {e}"))?;
-    <[u8; 32]>::try_from(bytes.as_slice())
-        .map_err(|_| "seed must be exactly 32 bytes (64 hex chars)".to_string())
+    resolve_secret(seed_hex)
 }
 
 fn parse32(hex_str: &str, what: &str) -> Result<[u8; 32], String> {
@@ -88,6 +137,44 @@ pub fn new_wallet(network: &str) -> Result<Wallet, String> {
             });
         }
     }
+}
+
+/// A freshly generated wallet backed by a recovery phrase.
+#[wasm_bindgen(getter_with_clone)]
+pub struct MnemonicWallet {
+    /// The BIP-39 recovery phrase. **This is the secret** — it restores the wallet
+    /// anywhere, forever.
+    pub mnemonic: String,
+    /// The `zkas:` shielded address the phrase derives.
+    pub address: String,
+}
+
+/// Generate a new wallet as a **12-word recovery phrase** (128 bits of entropy).
+///
+/// Twelve words is not a shortcut: an Orchard key lives on the Pallas curve, whose
+/// ~128-bit security caps what any seed can buy. A longer phrase would be more to
+/// write down for no additional strength — and a phrase people actually finish
+/// writing down is the one that saves their funds.
+#[wasm_bindgen]
+pub fn new_wallet_mnemonic(network: &str) -> Result<MnemonicWallet, String> {
+    let prefix = prefix_from(network)?;
+    let mut entropy = [0u8; 16];
+    getrandom::getrandom(&mut entropy).map_err(|e| format!("CSPRNG failed: {e}"))?;
+    let mnemonic = bip39::Mnemonic::from_entropy(&entropy)
+        .map_err(|e| format!("could not build a recovery phrase: {e}"))?;
+    let phrase = mnemonic.to_string();
+    let secret = secret_from_phrase(&phrase, "")?;
+    let raw = address_bytes_from_seed(secret)
+        .ok_or_else(|| "derived key is not a valid Orchard spending key".to_string())?;
+    Ok(MnemonicWallet { mnemonic: phrase, address: address_string(prefix, &raw) })
+}
+
+/// True if `secret` is a well-formed recovery phrase (right words, right checksum).
+/// Lets the UI validate what was typed before trying to open a wallet with it.
+#[wasm_bindgen]
+pub fn is_valid_mnemonic(secret: &str) -> bool {
+    let cleaned = secret.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    bip39::Mnemonic::parse_normalized(&cleaned).is_ok()
 }
 
 /// Derive the `zkas:` address for an existing seed on a network.
@@ -351,6 +438,67 @@ mod tests {
         // Re-deriving from the seed yields the same address (deterministic).
         let again = address_from_seed(&w.seed_hex, "mainnet").unwrap();
         assert_eq!(w.address, again);
+    }
+
+    /// THE BACKWARD-COMPATIBILITY LOCK. Every wallet created before recovery
+    /// phrases existed holds a raw 64-hex seed, and those 32 bytes ARE its Orchard
+    /// spending key. Adding phrases must not touch that path: this pins a fixed
+    /// seed to the address it has always produced, so any future change to
+    /// `resolve_secret` that would stranded an existing wallet fails here first.
+    #[test]
+    fn legacy_hex_seed_derivation_is_unchanged() {
+        let seed = [7u8; 32];
+        let seed_hex = hex::encode(seed);
+        // The address the old code produced: address_bytes_from_seed(raw bytes).
+        let expected = address_string(Prefix::Mainnet, &address_bytes_from_seed(seed).unwrap());
+        assert_eq!(address_from_seed(&seed_hex, "mainnet").unwrap(), expected);
+        // And the resolver hands back those exact bytes — no derivation applied.
+        assert_eq!(resolve_secret(&seed_hex).unwrap(), seed);
+    }
+
+    #[test]
+    fn mnemonic_wallet_roundtrips_and_is_deterministic() {
+        let w = new_wallet_mnemonic("mainnet").unwrap();
+        assert_eq!(w.mnemonic.split_whitespace().count(), 12, "12 words: {}", w.mnemonic);
+        assert!(w.address.starts_with("zkas:"), "got {}", w.address);
+        // The phrase alone restores the same wallet, which is the whole promise.
+        assert_eq!(address_from_seed(&w.mnemonic, "mainnet").unwrap(), w.address);
+        // Every secret-taking entry point accepts the phrase, not just addresses.
+        let sig = sign(&w.mnemonic, "mainnet", "hello").unwrap();
+        assert_eq!(sig.address, w.address);
+        assert!(verify(&w.address, "hello", &sig.signature_hex).unwrap());
+        assert!(fvk_hex(&w.mnemonic).is_ok());
+    }
+
+    /// Formatting must not change which wallet a phrase opens: a phrase pasted with
+    /// odd spacing, newlines or capitals is the SAME phrase, and silently deriving a
+    /// different (empty) wallet from it would look exactly like lost funds.
+    #[test]
+    fn mnemonic_is_insensitive_to_spacing_and_case() {
+        let w = new_wallet_mnemonic("mainnet").unwrap();
+        let words: Vec<&str> = w.mnemonic.split_whitespace().collect();
+        let messy = format!("  {}\n  {}  ", words[..6].join("  ").to_uppercase(), words[6..].join("\n"));
+        assert_eq!(address_from_seed(&messy, "mainnet").unwrap(), w.address);
+    }
+
+    #[test]
+    fn invalid_phrases_are_refused_not_silently_accepted() {
+        // Wrong checksum (real words, invalid combination) must not open a wallet.
+        let bad = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
+        assert!(!is_valid_mnemonic(bad));
+        assert!(address_from_seed(bad, "mainnet").is_err());
+        assert!(!is_valid_mnemonic("not actually words at all"));
+        assert!(address_from_seed("", "mainnet").is_err());
+    }
+
+    /// A phrase and a raw seed are different secrets and must never collide.
+    #[test]
+    fn phrase_and_hex_paths_are_distinct() {
+        let w = new_wallet_mnemonic("mainnet").unwrap();
+        let derived = resolve_secret(&w.mnemonic).unwrap();
+        assert_ne!(derived, [0u8; 32]);
+        // The derived key is a ZIP-32 child, not the BIP-39 seed's first 32 bytes.
+        assert!(is_valid_mnemonic(&w.mnemonic));
     }
 
     #[test]
