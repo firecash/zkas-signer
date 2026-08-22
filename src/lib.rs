@@ -169,6 +169,43 @@ pub fn new_wallet_mnemonic(network: &str) -> Result<MnemonicWallet, String> {
     Ok(MnemonicWallet { mnemonic: phrase, address: address_string(prefix, &raw) })
 }
 
+/// Derive the spending key of ONE ACCOUNT from a recovery phrase, as 64-hex.
+///
+/// This is what makes one phrase back up many wallets. ZIP-32 gives every account
+/// index its own independent key under `m/32'/coin'/account'`, so account 0, 1, 2…
+/// are unlinkable on-chain yet all restore from the same twelve words. The result
+/// is a plain 32-byte secret, so every existing path — address, viewing key,
+/// signing, spending — consumes it unchanged.
+///
+/// Account 0 is the wallet the phrase creates by default; `add account` simply
+/// asks for the next index, and needs no new backup.
+#[wasm_bindgen]
+pub fn account_seed_hex(mnemonic: &str, account: u32) -> Result<String, String> {
+    Ok(hex::encode(account_secret(mnemonic, account)?))
+}
+
+/// The `zkas:` address of one account of a recovery phrase, without going through
+/// the raw key — so a caller can preview or discover accounts cheaply.
+#[wasm_bindgen]
+pub fn account_address(mnemonic: &str, network: &str, account: u32) -> Result<String, String> {
+    let prefix = prefix_from(network)?;
+    let secret = account_secret(mnemonic, account)?;
+    let raw = address_bytes_from_seed(secret)
+        .ok_or_else(|| "derived key is not a valid Orchard spending key".to_string())?;
+    Ok(address_string(prefix, &raw))
+}
+
+fn account_secret(mnemonic: &str, account: u32) -> Result<[u8; 32], String> {
+    let cleaned = mnemonic.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let parsed = bip39::Mnemonic::parse_normalized(&cleaned)
+        .map_err(|e| format!("that is not a valid recovery phrase: {e}"))?;
+    let seed = parsed.to_seed_normalized("");
+    let id = zip32::AccountId::try_from(account).map_err(|_| format!("account index {account} is out of range"))?;
+    let sk = SpendingKey::from_zip32_seed(&seed, ZKAS_COIN_TYPE, id)
+        .map_err(|e| format!("could not derive account {account}: {e:?}"))?;
+    Ok(*sk.to_bytes())
+}
+
 /// True if `secret` is a well-formed recovery phrase (right words, right checksum).
 /// Lets the UI validate what was typed before trying to open a wallet with it.
 #[wasm_bindgen]
@@ -489,6 +526,29 @@ mod tests {
         assert!(address_from_seed(bad, "mainnet").is_err());
         assert!(!is_valid_mnemonic("not actually words at all"));
         assert!(address_from_seed("", "mainnet").is_err());
+    }
+
+    /// One phrase, many wallets. Each account index is its own independent key —
+    /// unlinkable on-chain — yet all of them restore from the same twelve words,
+    /// which is the whole point: ONE backup covers every account.
+    #[test]
+    fn accounts_derive_distinct_wallets_from_one_phrase() {
+        let w = new_wallet_mnemonic("mainnet").unwrap();
+        let a0 = account_address(&w.mnemonic, "mainnet", 0).unwrap();
+        let a1 = account_address(&w.mnemonic, "mainnet", 1).unwrap();
+        let a2 = account_address(&w.mnemonic, "mainnet", 2).unwrap();
+        // Account 0 IS the wallet the phrase creates by default — otherwise adding
+        // accounts would silently orphan the user's original wallet.
+        assert_eq!(a0, w.address, "account 0 must be the phrase's default wallet");
+        assert_ne!(a0, a1);
+        assert_ne!(a1, a2);
+        // Deterministic: the same index always returns the same wallet.
+        assert_eq!(account_address(&w.mnemonic, "mainnet", 1).unwrap(), a1);
+        // And the account key feeds every existing path unchanged.
+        let seed1 = account_seed_hex(&w.mnemonic, 1).unwrap();
+        assert_eq!(seed1.len(), 64);
+        assert_eq!(address_from_seed(&seed1, "mainnet").unwrap(), a1);
+        assert!(fvk_hex(&seed1).is_ok());
     }
 
     /// A phrase and a raw seed are different secrets and must never collide.
