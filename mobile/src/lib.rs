@@ -36,14 +36,19 @@ uniffi::setup_scaffolding!();
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum SignerError {
-    /// The underlying signer refused the input. The message is safe to show: it
-    /// never contains key material.
-    #[error("{message}")]
-    Signer { message: String },
+    /// The underlying signer refused the input. Safe to show: it never contains
+    /// key material.
+    ///
+    /// The field is `reason`, not `message`. UniFFI turns this into a Kotlin
+    /// class extending Exception, which already declares `message` — naming it
+    /// that produces a conflicting declaration that fails the Kotlin build while
+    /// Swift compiles happily, so the clash only shows up on one platform.
+    #[error("{reason}")]
+    Signer { reason: String },
 }
 
-fn err(message: String) -> SignerError {
-    SignerError::Signer { message }
+fn err(reason: String) -> SignerError {
+    SignerError::Signer { reason }
 }
 
 /// A newly generated wallet. Both fields are returned once and never again.
