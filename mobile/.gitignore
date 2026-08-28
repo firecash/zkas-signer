@@ -1,2 +1,8 @@
 target
 bindings
+swift
+kotlin
+jniLibs
+package
+*.zip
+ZkasMobile.xcframework

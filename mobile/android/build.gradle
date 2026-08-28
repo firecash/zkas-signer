@@ -1,0 +1,36 @@
+// Wraps the Rust JNI libraries and the generated Kotlin into a normal Android
+// library. CI drops `src/main/jniLibs/<abi>/libzkas_mobile.so` and the generated
+// bindings into `src/main/java` before this runs.
+plugins {
+    id 'com.android.library' version '8.5.2'
+    id 'org.jetbrains.kotlin.android' version '1.9.24'
+}
+
+android {
+    namespace 'info.zkas.mobile'
+    compileSdk 34
+    defaultConfig {
+        // Matches the ZKas wallet app, so a consumer never has to raise theirs.
+        minSdk 23
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+    sourceSets {
+        main {
+            java.srcDirs = ['src/main/java']
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+    kotlinOptions { jvmTarget = '17' }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // UniFFI's Kotlin bindings call the native library through JNA, so this is a
+    // hard runtime requirement, not an optional extra. The `@aar` classifier is
+    // the Android build of JNA — the plain jar has no .so payload and fails at
+    // run time with an UnsatisfiedLinkError.
+    api 'net.java.dev.jna:jna:5.14.0@aar'
+}

@@ -52,13 +52,24 @@ jobs:
           cargo run --bin uniffi-bindgen -- generate \
             --library target/release/libzkas_mobile.so \
             --language kotlin --out-dir ./kotlin
+      - name: Assemble the AAR
+        working-directory: mobile
+        run: |
+          mkdir -p android/src/main/jniLibs android/src/main/java
+          cp -r jniLibs/* android/src/main/jniLibs/
+          cp -r kotlin/* android/src/main/java/
+          cd android && gradle --no-daemon assembleRelease
       - name: What came out
         working-directory: mobile
-        run: find jniLibs kotlin -type f | sed 's/^/  /' && du -sh jniLibs
+        run: |
+          find jniLibs -type f | sed 's/^/  /'
+          find android/build/outputs/aar -type f | sed 's/^/  /'
+          du -sh android/build/outputs/aar/*.aar
       - uses: actions/upload-artifact@v4
         with:
           name: zkas-mobile-android
           path: |
+            mobile/android/build/outputs/aar/*.aar
             mobile/jniLibs/**
             mobile/kotlin/**
 
@@ -102,9 +113,20 @@ jobs:
       - name: What came out
         working-directory: mobile
         run: find ZkasMobile.xcframework -maxdepth 2 | sed 's/^/  /' && du -sh ZkasMobile.xcframework
+      - name: Lay out the Swift package
+        working-directory: mobile
+        run: |
+          mkdir -p package/Sources/ZkasMobile
+          cp -r ZkasMobile.xcframework package/
+          cp swift/zkas_mobile.swift package/Sources/ZkasMobile/
+          cp packaging/Package.swift.template package/Package.swift
+          # The checksum a remote .binaryTarget needs, printed where a human will
+          # see it rather than left for someone to compute later.
+          zip -qr ZkasMobile.xcframework.zip ZkasMobile.xcframework
+          echo "xcframework zip sha256: $(swift package compute-checksum ZkasMobile.xcframework.zip 2>/dev/null || shasum -a 256 ZkasMobile.xcframework.zip | cut -d" " -f1)"
       - uses: actions/upload-artifact@v4
         with:
           name: zkas-mobile-ios
           path: |
-            mobile/ZkasMobile.xcframework/**
-            mobile/swift/zkas_mobile.swift
+            mobile/package/**
+            mobile/ZkasMobile.xcframework.zip

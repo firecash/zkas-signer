@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A key-handling library: no permissions, no components, no network of its
+     own. The app decides what to talk to. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

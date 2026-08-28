@@ -1,0 +1,24 @@
+// swift-tools-version:5.9
+import PackageDescription
+
+// Consumes the XCFramework that CI builds. Two ways to use it:
+//
+//   Local  — keep ZkasMobile.xcframework beside this file and the `path:` binary
+//            target below.
+//   Remote — swap it for `.binaryTarget(name:, url:, checksum:)` pointing at a
+//            release asset; CI prints the checksum next to the zip it uploads.
+let package = Package(
+    name: "ZkasMobile",
+    platforms: [.iOS(.v13)],
+    products: [
+        .library(name: "ZkasMobile", targets: ["ZkasMobile"])
+    ],
+    targets: [
+        .binaryTarget(name: "ZkasMobileFFI", path: "ZkasMobile.xcframework"),
+        .target(
+            name: "ZkasMobile",
+            dependencies: ["ZkasMobileFFI"],
+            path: "Sources/ZkasMobile"
+        )
+    ]
+)
