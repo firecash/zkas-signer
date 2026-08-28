@@ -31,3 +31,12 @@ serde_json = "1"
 [[bin]]
 name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
+
+# blake3 arrives through kaspa-hashes and compiles C/SIMD by default, which is
+# what fails a mobile build — under cargo-ndk and under the iOS SDK alike. It
+# ships a pure-Rust backend, and cargo features are additive across the graph, so
+# asking for it HERE turns it on for the whole mobile build without touching the
+# node repo. Scoped to mobile because `pure` trades assembly for portable Rust:
+# right for a phone doing a few hashes per signature, wrong for a node.
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+blake3 = { version = "1", default-features = false, features = ["pure", "std"] }
