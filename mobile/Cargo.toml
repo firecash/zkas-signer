@@ -1,0 +1,33 @@
+[package]
+name = "zkas-mobile"
+version = "0.1.0"
+edition = "2021"
+description = "ZKas key custody and payment authorization for iOS and Android. Swift and Kotlin bindings over the exact crate the ZKas wallet signs with."
+license = "MIT OR Apache-2.0"
+
+[workspace]
+
+[lib]
+# `cdylib` for Android's JNI loader, `staticlib` for an iOS XCFramework, `lib` so
+# the Rust tests can link it.
+crate-type = ["cdylib", "staticlib", "lib"]
+name = "zkas_mobile"
+
+[dependencies]
+# THE SAME CRATE THE WALLET SIGNS WITH. Not a reimplementation: a second
+# implementation of key derivation is a second chance to derive an address nobody
+# can spend from. Its `#[wasm_bindgen]` attributes are inert on native targets.
+firecash-signer = { path = ".." }
+uniffi = { version = "0.28", features = ["cli"] }
+thiserror = "1"
+zeroize = { version = "1", features = ["alloc"] }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[dev-dependencies]
+serde_json = "1"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
