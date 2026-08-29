@@ -38,7 +38,7 @@ class FfiSmokeTest {
     @Test
     fun derivationMatchesWhatTheWalletWouldDo() {
         val wallet = generateWallet("mainnet")
-        val signer = Signer(wallet.mnemonic, "mainnet")
+        val signer = Signer.fromSecret(wallet.mnemonic, "mainnet")
         // A phrase signs with account 0 — the same rule the ZKas wallet applies.
         assertEquals(wallet.address, signer.address("mainnet"))
         assertEquals(wallet.address, accountAddress(wallet.mnemonic, "mainnet", 0u))
@@ -46,7 +46,7 @@ class FfiSmokeTest {
 
     @Test
     fun aViewingKeyCrossesTheBoundaryIntact() {
-        val signer = Signer(generateWallet("mainnet").mnemonic, "mainnet")
+        val signer = Signer.fromSecret(generateWallet("mainnet").mnemonic, "mainnet")
         val fvk = signer.viewingKey()
         assertEquals("a full viewing key is 96 bytes, hex-encoded", 192, fvk.length)
         assertTrue(fvk.all { it.isDigit() || it in 'a'..'f' })
@@ -55,7 +55,7 @@ class FfiSmokeTest {
     @Test
     fun signAndVerifyRoundTripThroughNative() {
         val wallet = generateWallet("mainnet")
-        val signer = Signer(wallet.mnemonic, "mainnet")
+        val signer = Signer.fromSecret(wallet.mnemonic, "mainnet")
         val sig = signer.signMessage("mainnet", "on device")
         assertTrue(verifyMessage(wallet.address, "on device", sig))
         assertTrue(!verifyMessage(wallet.address, "tampered", sig))
@@ -66,7 +66,7 @@ class FfiSmokeTest {
         // The error mapping is generated code; if it is wrong this is a hard crash
         // rather than a catchable exception.
         try {
-            Signer("not a phrase", "mainnet")
+            Signer.fromSecret("not a phrase", "mainnet")
             throw AssertionError("expected a SignerException")
         } catch (e: SignerException) {
             assertNotNull(e.message)
@@ -76,7 +76,7 @@ class FfiSmokeTest {
 
     @Test
     fun aMalformedPaymentIsRefusedAcrossTheBoundary() {
-        val signer = Signer(generateWallet("mainnet").mnemonic, "mainnet")
+        val signer = Signer.fromSecret(generateWallet("mainnet").mnemonic, "mainnet")
         try {
             signer.verifyAndSignPayment(
                 "testnet", "zkas:whatever", 1000uL, 10000uL, "00", "[]", "[]",
