@@ -7,6 +7,14 @@ name: mobile
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a release (tag, GitHub release, Maven, SwiftPM)"
+        type: boolean
+        default: false
+      version:
+        description: "Version to publish, e.g. 0.1.0"
+        default: "0.1.0"
   push:
     tags: ["mobile-v*"]
   pull_request:
@@ -133,3 +141,80 @@ jobs:
           path: |
             mobile/package/**
             mobile/ZkasMobile.xcframework.zip
+
+  # Turns the artifacts above into something consumers can actually depend on:
+  # a Maven coordinate and a Swift package pinned to a tag.
+  publish:
+    if: inputs.publish
+    needs: [test, android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main, token: "${{ secrets.GITHUB_TOKEN }}" }
+      - uses: actions/download-artifact@v4
+        with: { name: zkas-mobile-android, path: android-art }
+      - uses: actions/download-artifact@v4
+        with: { name: zkas-mobile-ios, path: ios-art }
+
+      - name: Point Package.swift at this release
+        id: swift
+        run: |
+          VERSION="${{ inputs.version }}"
+          ZIP=$(find ios-art -name "ZkasMobile.xcframework.zip" | head -1)
+          SUM=$(shasum -a 256 "$ZIP" | cut -d" " -f1)
+          URL="https://github.com/${{ github.repository }}/releases/download/mobile-v$VERSION/ZkasMobile.xcframework.zip"
+          # The Swift source lives in the repo; only the binary comes from the
+          # release, so both have to be committed before the tag is cut.
+          mkdir -p Sources/ZkasMobile
+          cp "$(find ios-art -name 'zkas_mobile.swift' | head -1)" Sources/ZkasMobile/
+          python3 - "$URL" "$SUM" <<'PY'
+          import re, sys, pathlib
+          url, checksum = sys.argv[1], sys.argv[2]
+          p = pathlib.Path("Package.swift"); s = p.read_text()
+          s = re.sub(r'url: "[^"]*"', f'url: "{url}"', s)
+          s = re.sub(r'checksum: "[^"]*"', f'checksum: "{checksum}"', s)
+          p.write_text(s)
+          PY
+          echo "checksum=$SUM" >> $GITHUB_OUTPUT
+          echo "  xcframework sha256: $SUM"
+
+      - name: Commit and tag
+        run: |
+          VERSION="${{ inputs.version }}"
+          git config user.name firecash
+          git config user.email dev@firecash.info
+          git add Package.swift Sources/ZkasMobile
+          git commit -m "mobile $VERSION: Swift package pinned to the released XCFramework" || echo "nothing to commit"
+          git push origin main
+          git tag -f "mobile-v$VERSION"
+          git push -f origin "mobile-v$VERSION"
+
+      - name: GitHub release with the artifacts
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          VERSION="${{ inputs.version }}"
+          gh release create "mobile-v$VERSION" --title "zkas-mobile $VERSION" --notes \
+            "Native ZKas key custody and payment authorization.
+
+          **Swift** — add https://github.com/${{ github.repository }} at \`mobile-v$VERSION\`.
+          **Android** — \`info.zkas:zkas-mobile:$VERSION\` from GitHub Packages.
+
+          Wraps the same crate the ZKas wallet signs with. Proving stays on the daemon; this device verifies the prepared bundle and signs. No blind-signing call is exposed." \
+            || gh release edit "mobile-v$VERSION" --title "zkas-mobile $VERSION"
+          gh release upload "mobile-v$VERSION" \
+            "$(find ios-art -name 'ZkasMobile.xcframework.zip' | head -1)" \
+            $(find android-art -name '*.aar' | head -1) --clobber
+
+      - name: Publish the AAR to GitHub Packages
+        working-directory: mobile/android
+        env:
+          GITHUB_ACTOR: "${{ github.actor }}"
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        run: |
+          mkdir -p src/main/jniLibs src/main/java
+          cp -r ../../android-art/jniLibs/* src/main/jniLibs/ 2>/dev/null || true
+          cp -r ../../android-art/kotlin/* src/main/java/ 2>/dev/null || true
+          gradle --no-daemon -PlibVersion=${{ inputs.version }} publishReleasePublicationToGitHubPackagesRepository

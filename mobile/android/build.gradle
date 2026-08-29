@@ -4,6 +4,7 @@
 plugins {
     id 'com.android.library' version '8.5.2'
     id 'org.jetbrains.kotlin.android' version '1.9.24'
+    id 'maven-publish'
 }
 
 android {
@@ -21,6 +22,9 @@ android {
         }
     }
     kotlinOptions { jvmTarget = '17' }
+    // AGP 8 needs to be told which variant is published, or `components.release`
+    // does not exist when maven-publish looks for it.
+    publishing { singleVariant('release') { withSourcesJar() } }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -33,4 +37,39 @@ dependencies {
     // the Android build of JNA — the plain jar has no .so payload and fails at
     // run time with an UnsatisfiedLinkError.
     api 'net.java.dev.jna:jna:5.14.0@aar'
+}
+
+// Published to GitHub Packages rather than Maven Central: Central needs a
+// Sonatype account, an owned group id and GPG signing keys, none of which exist
+// yet. GitHub Packages authenticates with the token CI already has, so consumers
+// can depend on a real coordinate today instead of a file path.
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
+                groupId 'info.zkas'
+                artifactId 'zkas-mobile'
+                version project.findProperty('libVersion') ?: '0.1.0'
+                pom {
+                    name = 'ZKas Mobile'
+                    description = 'ZKas key custody and payment authorization for Android'
+                    url = 'https://github.com/firecash/zkas-signer'
+                    licenses {
+                        license { name = 'MIT OR Apache-2.0' }
+                    }
+                }
+            }
+        }
+        repositories {
+            maven {
+                name = 'GitHubPackages'
+                url = 'https://maven.pkg.github.com/firecash/zkas-signer'
+                credentials {
+                    username = System.getenv('GITHUB_ACTOR')
+                    password = System.getenv('GITHUB_TOKEN')
+                }
+            }
+        }
+    }
 }
