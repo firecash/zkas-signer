@@ -286,6 +286,103 @@ mod tests {
         assert!(Signer::from_secret("a".repeat(63), NET.into()).is_err());
     }
 
+    /// The authorization path, which had no test at all — in this crate or in
+    /// firecash-signer, whose thirteen tests cover derivation, addresses and
+    /// message signing and never touch it.
+    ///
+    /// These cover the REFUSALS, and that is the half that protects money: every
+    /// one of them must return an error rather than a signature. A bug that
+    /// signs something malformed is the same class of bug as one that signs a
+    /// payment to an attacker.
+    ///
+    /// What is still missing, and cannot be faked: the positive path, and the
+    /// case that matters most — a well-formed bundle that pays SOMEONE ELSE must
+    /// be refused. Both need a real prepared bundle from a funded wallet, so they
+    /// belong in an integration test against a daemon, not here.
+    mod authorization {
+        use super::*;
+
+        fn signer() -> Arc<Signer> {
+            Signer::from_secret("ab".repeat(32), NET.into()).unwrap()
+        }
+
+        fn attempt(network: &str, to: &str, bundle: &str, disclosure: &str, alphas: &str) -> Result<String, SignerError> {
+            signer().verify_and_sign_payment(
+                network.into(), to.into(), 1_000, 10_000,
+                bundle.into(), disclosure.into(), alphas.into(),
+            )
+        }
+
+        const ADDR: &str = "zkas:p8a4neush78c56rcqraed3esy280ar2xatee3zucz39hyyxgjz80ph6mfj0430v4r3ek6qgj8dkk0ll";
+
+        /// Asserting the REASON, not just that something failed. Four `is_err()`
+        /// checks can all be passing for one reason — and one of them was: the
+        /// disclosure case never reached disclosure parsing, it died earlier on
+        /// the bundle, so it asserted a refusal it never tested.
+        fn refusal(r: Result<String, SignerError>, expect: &str) {
+            match r {
+                Ok(_) => panic!("signed something it should have refused"),
+                Err(e) => {
+                    let m = format!("{e}");
+                    assert!(m.contains(expect), "refused, but for the wrong reason: {m}");
+                }
+            }
+        }
+
+        #[test]
+        fn an_unknown_network_is_refused_rather_than_signed_against_the_wrong_chain() {
+            // The sighash is domain-separated by genesis. Signing against the
+            // wrong one produces a signature valid on a chain the user did not
+            // mean to pay on. Checked before the bundle, so this is reachable.
+            refusal(attempt("testnet", ADDR, "00", "[]", "[]"), "unknown network");
+            refusal(attempt("", ADDR, "00", "[]", "[]"), "unknown network");
+            refusal(attempt("bitcoin", ADDR, "00", "[]", "[]"), "unknown network");
+        }
+
+        #[test]
+        fn a_recipient_that_is_not_a_shielded_address_is_refused() {
+            refusal(attempt(NET, "not-an-address", "00", "[]", "[]"), "recipient address");
+            refusal(attempt(NET, "", "00", "[]", "[]"), "recipient address");
+            // Right shape, wrong checksum.
+            let mut bad = ADDR.to_owned();
+            bad.pop();
+            bad.push('q');
+            refusal(attempt(NET, &bad, "00", "[]", "[]"), "recipient address");
+        }
+
+        #[test]
+        fn a_malformed_bundle_is_refused() {
+            refusal(attempt(NET, ADDR, "zz", "[]", "[]"), "bundle_hex");     // not hex
+            refusal(attempt(NET, ADDR, "00ff", "[]", "[]"), "bundle_hex");   // hex, not a bundle
+            refusal(attempt(NET, ADDR, "", "[]", "[]"), "bundle_hex");
+        }
+
+        // NOT TESTED HERE, deliberately: the disclosure and alpha parsing, the
+        // check that the bundle pays the stated recipient and amount, and the fee
+        // ceiling. All of them sit BEHIND bundle decoding, so no input built from
+        // strings can reach them — an attempt to test them here only re-tests the
+        // bundle parser while appearing to cover the payment check.
+        //
+        // They need a real prepared bundle from a funded wallet, which makes them
+        // an integration test against a daemon. That is the gap, and it is the
+        // half that matters most: a well-formed bundle paying SOMEONE ELSE must be
+        // refused, and nothing here proves it is.
+
+        #[test]
+        fn nothing_here_ever_returns_a_signature() {
+            // The point of the whole group: not one malformed input produces
+            // something an app could submit.
+            for (n, t, b, d, a) in [
+                ("testnet", ADDR, "00", "[]", "[]"),
+                (NET, "nope", "00", "[]", "[]"),
+                (NET, ADDR, "zz", "[]", "[]"),
+                (NET, ADDR, "00", "x", "[]"),
+            ] {
+                assert!(attempt(n, t, b, d, a).is_err(), "signed a malformed request: {n} {t} {b} {d} {a}");
+            }
+        }
+    }
+
     #[test]
     fn mnemonic_validation_checks_the_checksum() {
         // Fixed vectors, not a random phrase with one word swapped. A 12-word
