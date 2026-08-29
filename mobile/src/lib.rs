@@ -287,11 +287,22 @@ mod tests {
     }
 
     #[test]
-    fn mnemonic_validation_catches_a_mistyped_word() {
-        let w = generate_wallet(NET.into()).unwrap();
-        assert!(is_valid_mnemonic(w.mnemonic.clone()));
-        let mut words: Vec<&str> = w.mnemonic.split_whitespace().collect();
-        words[0] = "zoo"; // valid word, so only the checksum can catch it
-        assert!(!is_valid_mnemonic(words.join(" ")), "the BIP-39 checksum must reject this");
+    fn mnemonic_validation_checks_the_checksum() {
+        // Fixed vectors, not a random phrase with one word swapped. A 12-word
+        // BIP-39 phrase carries only FOUR checksum bits, so a random substitution
+        // still validates about one time in sixteen — an assertion that it always
+        // fails is a test that fails ~6% of the time forever. CI found it on the
+        // second run.
+        //
+        // The canonical all-zero-entropy vector, and the same words with the
+        // final one changed so the checksum no longer matches.
+        let valid = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let broken = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
+        assert!(is_valid_mnemonic(valid.into()));
+        assert!(!is_valid_mnemonic(broken.into()), "the BIP-39 checksum must reject this");
+        // Not a phrase at all.
+        assert!(!is_valid_mnemonic("hello world".into()));
+        // And whatever we generate is always valid.
+        assert!(is_valid_mnemonic(generate_wallet(NET.into()).unwrap().mnemonic));
     }
 }
