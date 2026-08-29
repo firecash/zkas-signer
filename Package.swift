@@ -17,8 +17,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "ZkasMobileFFI",
-            url: "https://github.com/firecash/zkas-signer/releases/download/mobile-v0.0.0/ZkasMobile.xcframework.zip",
-            checksum: "0000000000000000000000000000000000000000000000000000000000000000"
+            url: "https://github.com/firecash/zkas-signer/releases/download/mobile-v0.1.0/ZkasMobile.xcframework.zip",
+            checksum: "a7fce13c02f89660f47d6ded6a76f01a95e9f2a7966ad8b966a0f6c39888698a"
         ),
         .target(
             name: "ZkasMobile",
