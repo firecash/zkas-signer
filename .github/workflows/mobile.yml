@@ -31,20 +31,17 @@ jobs:
         run: git clone --depth 1 https://github.com/firecash/zkas-rusty.git ../rusty-kaspa
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
       - run: cargo install cargo-ndk --locked
       - name: Build the JNI libraries
         working-directory: mobile
         # The NDK is preinstalled on this runner image; cargo-ndk finds it via
         # ANDROID_NDK_LATEST_HOME and sets the linkers per ABI.
         run: |
-          # arm64-v8a and armeabi-v7a only. x86_64 (the Intel emulator) cannot
-          # build: kaspa-hashes/build.rs compiles keccak assembly whenever the
-          # target arch is x86_64 and panics "Unsupported OS" for any OS that is
-          # not macos/linux/windows — so x86_64-linux-android dies in the build
-          # script. Fixing that upstream means gating the asm compile on the
-          # crate's existing `no-asm` feature, which build.rs does not read today.
-          cargo ndk -t arm64-v8a -t armeabi-v7a -o ./jniLibs build --release
+          # x86_64 is back: kaspa-hashes/build.rs now honours its own `no-asm`
+          # feature, which this crate requests for mobile, so the Intel emulator
+          # builds instead of panicking in the build script.
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ./jniLibs build --release
       - name: Generate the Kotlin bindings
         working-directory: mobile
         run: |
@@ -81,15 +78,15 @@ jobs:
         run: git clone --depth 1 https://github.com/firecash/zkas-rusty.git ../rusty-kaspa
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
       - name: Build the static libraries
         working-directory: mobile
         run: |
-          # Device and Apple Silicon simulator. x86_64-apple-ios (the Intel Mac
-          # simulator) hits the same kaspa-hashes build-script panic as
-          # x86_64-linux-android, and Intel Macs are the legacy case.
+          # Device, plus both simulator architectures now that the build-script
+          # panic is fixed upstream.
           cargo build --release --target aarch64-apple-ios
           cargo build --release --target aarch64-apple-ios-sim
+          cargo build --release --target x86_64-apple-ios
       - name: Generate the Swift bindings
         working-directory: mobile
         run: |
@@ -105,10 +102,16 @@ jobs:
           mkdir -p headers
           cp swift/zkas_mobileFFI.h headers/
           cp swift/zkas_mobileFFI.modulemap headers/module.modulemap
-          # One simulator architecture, so no lipo step is needed.
+          # Device and simulator cannot share an xcframework slice, and the two
+          # simulator architectures must be lipo'd into one before they can.
+          mkdir -p sim
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libzkas_mobile.a \
+            target/x86_64-apple-ios/release/libzkas_mobile.a \
+            -output sim/libzkas_mobile.a
           xcodebuild -create-xcframework \
             -library target/aarch64-apple-ios/release/libzkas_mobile.a -headers headers \
-            -library target/aarch64-apple-ios-sim/release/libzkas_mobile.a -headers headers \
+            -library sim/libzkas_mobile.a -headers headers \
             -output ZkasMobile.xcframework
       - name: What came out
         working-directory: mobile

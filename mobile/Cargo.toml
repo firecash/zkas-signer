@@ -40,3 +40,8 @@ path = "src/bin/uniffi-bindgen.rs"
 # right for a phone doing a few hashes per signature, wrong for a node.
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 blake3 = { version = "1", default-features = false, features = ["pure", "std"] }
+# Same reason as blake3 above: kaspa-hashes hand-writes keccak assembly for x86_64
+# and has none for android or ios, so the Intel emulator and the Intel Mac
+# simulator need its pure-Rust path. Requesting the feature here turns it on for
+# the mobile build; on arm64 the assembly is never reached anyway.
+kaspa-hashes = { path = "../../rusty-kaspa/crypto/hashes", features = ["no-asm"] }
