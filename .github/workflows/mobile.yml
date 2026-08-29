@@ -50,6 +50,16 @@ jobs:
           # feature, which this crate requests for mobile, so the Intel emulator
           # builds instead of panicking in the build script.
           cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ./jniLibs build --release
+      - name: Keep only the library that is actually loaded
+        working-directory: mobile
+        # cargo-ndk copies EVERY cdylib the build produced, and firecash-signer and
+        # the workflow-* crates all declare one — so the .aar was carrying twelve
+        # extra .so files, 57% of its native payload, that nothing ever opens.
+        # UniFFI's Kotlin loads exactly `zkas_mobile`.
+        run: |
+          find jniLibs -name '*.so' ! -name 'libzkas_mobile.so' -print -delete | sed 's/^/  dropped /'
+          echo "kept:"; find jniLibs -name '*.so' | sed 's/^/  /'
+
       - name: Generate the Kotlin bindings
         working-directory: mobile
         run: |
