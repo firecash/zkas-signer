@@ -15,9 +15,11 @@ kaspa-shielded-core = { path = "../rusty-kaspa/shielded-core", default-features 
 kaspa-addresses = { path = "../rusty-kaspa/crypto/addresses" }
 zkas-signer = { path = "../rusty-kaspa/sdk/signer" }
 wasm-bindgen = "0.2"
-rand = "0.8"
+rand = "0.10"
 hex = "0.4"
-orchard = { version = "0.14", default-features = false }
+# Must be the SAME crate shielded-core uses (zakura-orchard since d749389), or
+# `SpendingKey` here and there are two unrelated types.
+orchard = { package = "zakura-orchard", version = "1.0.1", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Recovery phrases. BIP-39 for the wordlist/checksum (the scheme every wallet and
@@ -26,9 +28,11 @@ serde_json = "1"
 # implementations; `orchard` already depends on zip32 internally.
 bip39 = { version = "2", default-features = false, features = ["std"] }
 zip32 = { version = "0.2", default-features = false }
-# Force getrandom's browser backend on wasm so `OsRng` works in-page. A no-op on
-# native targets, which use the OS CSPRNG regardless.
-getrandom = { version = "0.2", features = ["js"] }
+# Force getrandom's browser backend on wasm so `rand::rng()` works in-page. A no-op on
+# native targets, which use the OS CSPRNG regardless. rand 0.10 sits on getrandom 0.4,
+# whose wasm backend is opt-in twice: this feature AND the
+# `--cfg getrandom_backend="wasm_js"` rustflag in .cargo/config.toml.
+getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [profile.release]
 opt-level = "s"

@@ -129,7 +129,7 @@ pub fn new_wallet(network: &str) -> Result<Wallet, String> {
     let prefix = prefix_from(network)?;
     loop {
         let mut seed = [0u8; 32];
-        getrandom::getrandom(&mut seed).map_err(|e| format!("CSPRNG failed: {e}"))?;
+        getrandom::fill(&mut seed).map_err(|e| format!("CSPRNG failed: {e}"))?;
         if let Some(raw) = address_bytes_from_seed(seed) {
             return Ok(Wallet {
                 seed_hex: hex::encode(seed),
@@ -159,7 +159,7 @@ pub struct MnemonicWallet {
 pub fn new_wallet_mnemonic(network: &str) -> Result<MnemonicWallet, String> {
     let prefix = prefix_from(network)?;
     let mut entropy = [0u8; 16];
-    getrandom::getrandom(&mut entropy).map_err(|e| format!("CSPRNG failed: {e}"))?;
+    getrandom::fill(&mut entropy).map_err(|e| format!("CSPRNG failed: {e}"))?;
     let mnemonic = bip39::Mnemonic::from_entropy(&entropy)
         .map_err(|e| format!("could not build a recovery phrase: {e}"))?;
     let phrase = mnemonic.to_string();
@@ -232,7 +232,7 @@ pub fn sign(seed_hex: &str, network: &str, message: &str) -> Result<Signature, S
     let prefix = prefix_from(network)?;
     let seed = parse_seed(seed_hex)?;
     let tag = prefix.to_string();
-    let signed = sign_message(seed, tag.as_bytes(), message.as_bytes(), rand::rngs::OsRng)
+    let signed = sign_message(seed, tag.as_bytes(), message.as_bytes(), rand::rng())
         .ok_or_else(|| "seed is not a valid Orchard spending key".to_string())?;
     let mut blob = Vec::with_capacity(FVK_LEN + SIG_LEN);
     blob.extend_from_slice(&signed.fvk);

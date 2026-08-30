@@ -1,0 +1,4 @@
+# getrandom 0.4 (via rand 0.10) refuses to guess a backend on wasm32-unknown-unknown;
+# the browser backend must be selected explicitly (plus the `wasm_js` feature in Cargo.toml).
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
