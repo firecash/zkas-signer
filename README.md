@@ -40,7 +40,7 @@ The offline paper wallet inlines `pkg/firecash_signer_bg.wasm` as base64. To con
 you're running was built from this source, rebuild and compare the wasm hash:
 
 ```
-sha256(firecash_signer_bg.wasm) = db0f4f715b4bab1b4ea6e27940a2c3a548bb134e85f2841dc734fa116e5fc7ee
+sha256(firecash_signer_bg.wasm) = ea0ec55a2cef0bb7f3cd6ce80b0e5c218693e0e97be49c80a73587b1eefcd409
 ```
 
 (Reproducibility depends on matching Rust / wasm-bindgen versions; this hash is from

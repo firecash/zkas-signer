@@ -48,7 +48,7 @@ shippable `cdylib`/`staticlib` needs the Android NDK and Xcode toolchains; the
 
 ## Use it
 
-Every release ships a signed AAR, an `ZkasMobile.xcframework.zip`, a Maven package
+Every release ships a release AAR, an `ZkasMobile.xcframework.zip`, a Maven package
 on GitHub Packages, and a SwiftPM pin. CI proves each release on a real Android
 emulator (`device` job) before anything is published.
 
