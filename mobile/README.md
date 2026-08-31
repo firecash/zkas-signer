@@ -46,7 +46,35 @@ Verified building for `aarch64-linux-android` and `aarch64-apple-ios`. Linking a
 shippable `cdylib`/`staticlib` needs the Android NDK and Xcode toolchains; the
 `cargo check`/`build` above needs neither.
 
+## Use it
+
+Every release ships a signed AAR, an `ZkasMobile.xcframework.zip`, a Maven package
+on GitHub Packages, and a SwiftPM pin. CI proves each release on a real Android
+emulator (`device` job) before anything is published.
+
+**Android (Gradle):**
+
+    repositories {
+      maven {
+        url = uri("https://maven.pkg.github.com/firecash/zkas-signer")
+        credentials { username = GITHUB_USER; password = GITHUB_TOKEN } // any token with read:packages
+      }
+    }
+    dependencies { implementation("info.zkas:zkas-mobile:0.1.3") }
+
+or drop `zkas-mobile-release.aar` from the GitHub release straight into `libs/`.
+
+**iOS (SwiftPM):** add `https://github.com/firecash/zkas-signer` at tag
+`mobile-v0.1.3` — the root `Package.swift` pins that release's XCFramework by
+checksum.
+
+Since `mobile-v0.1.3` the bindings are built on the Zakura Common Orchard stack
+(zakura-orchard), the same crates the node and daemon run. Keys, addresses and
+signatures are byte-identical to earlier releases — upgrading changes nothing a
+verifier can observe.
+
 ## Status
 
-Working library, generated bindings, 8 tests. Not yet published to SwiftPM or
-Maven, and no XCFramework/AAR packaging — see `MOBILE-LIBS.md` in the wallet repo.
+Published: tag `mobile-v0.1.3` (AAR + XCFramework + Maven on GitHub Packages +
+SwiftPM). Maven Central is pending a Sonatype account. 12 tests, all four CI jobs
+(test, android, ios, device) gate every release.
