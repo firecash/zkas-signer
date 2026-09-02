@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>FireCash Paper Wallet (offline)</title>
+<title>ZKas Paper Wallet (offline)</title>
 <style>
   :root{
     --bg:#0b0b0f; --surface:#16161d; --surface2:#1c1c26; --border:#2a2a35;
@@ -60,8 +60,8 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>FireCash <span class="em">Paper Wallet</span></h1>
-  <p class="sub">Generate a shielded (Orchard) FireCash wallet entirely on this device. Keys never leave the page.</p>
+  <h1>ZKas <span class="em">Paper Wallet</span></h1>
+  <p class="sub">Generate a shielded (Orchard) ZKas wallet entirely on this device. Keys never leave the page.</p>
 
   <div class="card warn noprint">
     <b>⚠️ Use this OFFLINE.</b> For real cold storage: save this file, disconnect from the
@@ -77,8 +77,8 @@
       <div>
         <label for="net">Network</label><br/>
         <select id="net">
-          <option value="mainnet" selected>mainnet (firecash:)</option>
-          <option value="testnet">testnet (firecashtest:)</option>
+          <option value="mainnet" selected>mainnet (zkas:)</option>
+          <option value="testnet">testnet (zkastest:)</option>
         </select>
       </div>
       <div style="flex:1"></div>
@@ -99,6 +99,15 @@
         <div class="k">Shielded address (safe to share — receive to this)</div>
         <div class="val" id="addr"></div>
       </div>
+      <div class="field">
+        <div class="k">View key — WATCH-ONLY (imports a read-only wallet; cannot spend)</div>
+        <div class="val" id="fvk"></div>
+        <div class="hint">This is your <b>full viewing key</b>. Import it into a ZKas wallet as a
+          <b>watch-only</b> wallet to see this wallet's balance and history without exposing the
+          seed. Anyone who has it can <b>see every payment and amount</b> for this wallet, but
+          can <b>never move the funds</b> — that needs the seed below. Share it only with someone
+          you want to give full visibility.</div>
+      </div>
       <div class="field secret hidden" id="seedbox">
         <div class="k">Recovery seed — SECRET (back this up offline)</div>
         <div class="val" id="seed"></div>
@@ -106,9 +115,10 @@
       </div>
       <div class="qrs">
         <div class="qr"><div id="qraddr"></div><div class="cap">Address</div></div>
+        <div class="qr"><div id="qrfvk"></div><div class="cap">View key (watch-only)</div></div>
         <div class="qr secret hidden" id="qrseedbox"><div id="qrseed"></div><div class="cap">Seed (secret)</div></div>
       </div>
-      <p class="hint">Restore later by importing the seed into a FireCash wallet
+      <p class="hint">Restore later by importing the seed into a ZKas wallet
         (<code>shielded-pay</code>, walletd, or the web/mobile wallet). The address is
         deterministically derived from the seed, so it can always be recomputed.</p>
     </div>
@@ -117,7 +127,7 @@
   <p class="muted noprint" style="margin-top:24px">
     Offline · self-contained · no dependencies. Verify integrity by opening this file with
     your browser's network tab: it should issue zero requests. Source:
-    <code>firecash-signer</code> compiled to WebAssembly.
+    <code>zkas-signer</code> compiled to WebAssembly.
   </p>
 </div>
 
@@ -3791,9 +3801,12 @@ let current = null; // {seed_hex, address}
 
 function render(w) {
   current = w;
+  const viewKey = fvk_hex(w.seed_hex);
   $("addr").textContent = w.address;
+  $("fvk").textContent = viewKey;
   $("seed").textContent = w.seed_hex;
   drawQR("qraddr", w.address);
+  drawQR("qrfvk", viewKey);
   drawQR("qrseed", w.seed_hex);
   // Re-hide the seed each time a new wallet is generated.
   $("seedbox").classList.add("hidden");
