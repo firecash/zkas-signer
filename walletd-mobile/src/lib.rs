@@ -40,8 +40,12 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>) -> u
     drop(listener);
     let listen: SocketAddr = ([127, 0, 0, 1], port).into();
 
+    // Use every core: the wallet is the only thing running, so there is no reason to
+    // hold cores back the way a shared server would. Trial-decryption, page ingest and
+    // proving all scale with this.
+    let cores = std::thread::available_parallelism().map(|c| c.get()).unwrap_or(2);
     let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
+        .worker_threads(cores.max(2))
         .enable_all()
         .build()
     {
@@ -66,7 +70,19 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>) -> u
         allow_custodial: true,
         max_concurrent_proves: 1,
         auto_consolidate: None,
-        resources: zkas_walletd::ResourceLimits::default(),
+        // Max-performance profile for a single on-device wallet. `default()` clamps
+        // page_decode_threads to 8 for a many-wallet server; here one wallet owns the
+        // machine, so give trial-decryption every core. The other fields stay at the
+        // sensible single-wallet defaults.
+        resources: {
+            let mut r = zkas_walletd::ResourceLimits::default();
+            r.page_decode_threads = cores.max(1);
+            r.sync_wallets = 1;
+            r.load_wallets = 1;
+            r.warm_wallets = 1;
+            r.page_cache_entries = 256;
+            r
+        },
         idle_timeout: None,
     };
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
