@@ -1,0 +1,34 @@
+[package]
+name = "zkas-walletd-mobile"
+version = "0.1.0"
+edition = "2021"
+description = "Embedded ZKas wallet engine for mobile: runs zkas-walletd in-process, bound to loopback, for a native Android/iOS shell (the desktop model on a phone)."
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "zkas_walletd_mobile"
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[dependencies]
+zkas-walletd = { path = "../../rusty-kaspa/zkas-walletd" }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+once_cell = "1"
+uniffi = { version = "0.28", features = ["cli"] }
+
+# Mobile targets: pure-Rust blake3 and no-asm kaspa-hashes. Cargo features are
+# additive across the graph, so requesting them here turns them on for walletd's
+# transitive use without touching the node repo (same trick as the signer lib).
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+blake3 = { version = "1", default-features = false, features = ["pure", "std"] }
+kaspa-hashes = { path = "../../rusty-kaspa/crypto/hashes", features = ["no-asm"] }
+
+[build-dependencies]
+uniffi = { version = "0.28", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
