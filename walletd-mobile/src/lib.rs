@@ -81,6 +81,11 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>) -> u
             r.load_wallets = 1;
             r.warm_wallets = 1;
             r.page_cache_entries = 256;
+            // Concurrent page read-ahead: hide node round-trip latency on a fetch-bound
+            // phone by keeping several full pages in flight at once (default is 1).
+            r.prefetch_depth = 8;
+            // Keep prefetched pages warm long enough for a slow device to reach them.
+            r.page_cache_ttl_secs = 60;
             r
         },
         idle_timeout: None,
