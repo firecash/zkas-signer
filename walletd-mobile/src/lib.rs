@@ -23,7 +23,7 @@ static ENGINE: Lazy<Mutex<Option<Running>>> = Lazy::new(|| Mutex::new(None));
 /// `wallet_dir`, optionally unlocked with `secret`. Returns the bound loopback port,
 /// or 0 on failure. Idempotent: a second call while running returns the live port.
 #[uniffi::export]
-pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>) -> u16 {
+pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, socks: Option<String>) -> u16 {
     let mut guard = ENGINE.lock().unwrap();
     if let Some(r) = guard.as_ref() {
         return r.port;
@@ -93,6 +93,8 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>) -> u
             r
         },
         idle_timeout: None,
+        // Tor: route the node connection through Orbot's SOCKS when the app asked for it.
+        node_socks_proxy: socks,
     };
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     runtime.spawn(async move {
