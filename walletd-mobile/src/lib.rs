@@ -69,6 +69,10 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>) -> u
         require_bearer: None,
         allow_custodial: true,
         max_concurrent_proves: 1,
+        // Single wallet on a phone: nobody borrows a shared chain tree, and building it
+        // from genesis is a multi-minute grind that only delays the first send. The
+        // wallet's own near-tip frontier tree serves its spends directly.
+        build_shared_tree: false,
         auto_consolidate: None,
         // Max-performance profile for a single on-device wallet. `default()` clamps
         // page_decode_threads to 8 for a many-wallet server; here one wallet owns the
