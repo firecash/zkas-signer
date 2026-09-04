@@ -13,6 +13,7 @@ crate-type = ["cdylib", "staticlib", "lib"]
 zkas-walletd = { path = "../../rusty-kaspa/zkas-walletd" }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 once_cell = "1"
+log = "0.4"
 uniffi = { version = "0.28", features = ["cli"] }
 
 # Mobile targets: pure-Rust blake3 and no-asm kaspa-hashes. Cargo features are

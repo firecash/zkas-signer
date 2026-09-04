@@ -19,11 +19,69 @@ struct Running {
 
 static ENGINE: Lazy<Mutex<Option<Running>>> = Lazy::new(|| Mutex::new(None));
 
+// ---------------------------------------------------------------------------
+// In-memory ring-buffer logger. The daemon logs through the `log` facade, but a
+// mobile shell installs no logger, so every message is dropped and a stuck engine
+// is a black box. Capture the recent lines here and hand them to the app on demand.
+const LOG_RING_CAP: usize = 3000;
+static LOG_RING: Lazy<Mutex<std::collections::VecDeque<String>>> =
+    Lazy::new(|| Mutex::new(std::collections::VecDeque::with_capacity(256)));
+static LOGGER_SET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+struct RingLogger;
+impl log::Log for RingLogger {
+    fn enabled(&self, m: &log::Metadata) -> bool {
+        m.level() <= log::max_level()
+    }
+    fn log(&self, record: &log::Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let line = format!("{secs} [{}] {}: {}", record.level(), record.target(), record.args());
+        if let Ok(mut r) = LOG_RING.lock() {
+            while r.len() >= LOG_RING_CAP {
+                r.pop_front();
+            }
+            r.push_back(line);
+        }
+    }
+    fn flush(&self) {}
+}
+
+/// Install the ring logger once; later calls only adjust the level.
+fn install_logger() {
+    if LOGGER_SET.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let _ = log::set_boxed_logger(Box::new(RingLogger));
+    log::set_max_level(log::LevelFilter::Info);
+}
+
+/// Recent engine log lines (oldest first), for the app's debug view.
+#[uniffi::export]
+pub fn logs() -> String {
+    LOG_RING
+        .lock()
+        .map(|r| r.iter().cloned().collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default()
+}
+
+/// Turn debug-level logging on or off at runtime (default info).
+#[uniffi::export]
+pub fn set_debug_logs(on: bool) {
+    log::set_max_level(if on { log::LevelFilter::Debug } else { log::LevelFilter::Info });
+}
+
 /// Start the engine against `node_addr` (host:port gRPC), storing wallet data under
 /// `wallet_dir`, optionally unlocked with `secret`. Returns the bound loopback port,
 /// or 0 on failure. Idempotent: a second call while running returns the live port.
 #[uniffi::export]
 pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, socks: Option<String>) -> u16 {
+    install_logger();
     let mut guard = ENGINE.lock().unwrap();
     if let Some(r) = guard.as_ref() {
         return r.port;
