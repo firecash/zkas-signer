@@ -26,25 +26,66 @@ use kaspa_shielded_core::orchard_recipient_bytes;
 use kaspa_shielded_core::wallet::address_bytes_from_seed;
 use orchard::keys::SpendingKey;
 use wasm_bindgen::prelude::*;
+use zeroize::{Zeroize, Zeroizing};
 
 /// A freshly generated wallet: the secret seed and its public address.
-#[wasm_bindgen(getter_with_clone)]
+///
+/// The seed is kept private on the Rust side. JavaScript must call the
+/// explicit `seed_hex()` method to display it once for backup. There is no
+/// automatic property getter that copies the secret on every access, and the
+/// value is cleared from memory when the wallet is dropped.
+#[wasm_bindgen]
 pub struct Wallet {
-    /// 32-byte spending seed, hex-encoded. **This is the secret** — whoever holds
-    /// it controls the funds.
-    pub seed_hex: String,
-    /// The `zkas:` shielded address derived from the seed.
-    pub address: String,
+    seed_hex: Zeroizing<String>,
+    address: String,
+}
+
+#[wasm_bindgen]
+impl Wallet {
+    #[wasm_bindgen(getter)]
+    pub fn address(&self) -> String {
+        self.address.clone()
+    }
+
+    /// Return the secret seed for one-time backup display.
+    /// Callers should show it and let this object drop right after.
+    pub fn seed_hex(&self) -> String {
+        self.seed_hex.clone()
+    }
+
+    /// Clear the secret from memory right away instead of waiting for drop.
+    pub fn free_wallet(mut self) {
+        self.seed_hex.zeroize();
+        drop(self);
+    }
+}
+
+impl Drop for Wallet {
+    fn drop(&mut self) {
+        self.seed_hex.zeroize();
+    }
 }
 
 /// A message signature asserting control of an address.
-#[wasm_bindgen(getter_with_clone)]
+#[wasm_bindgen]
 pub struct Signature {
-    /// The address the signature asserts control of.
-    pub address: String,
+    address: String,
     /// `fvk ‖ sig`, hex-encoded (96 + 64 bytes). Discloses viewing capability by
     /// design — the FVK binds the signature to the address.
-    pub signature_hex: String,
+    signature_hex: String,
+}
+
+#[wasm_bindgen]
+impl Signature {
+    #[wasm_bindgen(getter)]
+    pub fn address(&self) -> String {
+        self.address.clone()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn signature_hex(&self) -> String {
+        self.signature_hex.clone()
+    }
 }
 
 fn prefix_from(network: &str) -> Result<Prefix, String> {
@@ -132,7 +173,7 @@ pub fn new_wallet(network: &str) -> Result<Wallet, String> {
         getrandom::fill(&mut seed).map_err(|e| format!("CSPRNG failed: {e}"))?;
         if let Some(raw) = address_bytes_from_seed(seed) {
             return Ok(Wallet {
-                seed_hex: hex::encode(seed),
+                seed_hex: Zeroizing::new(hex::encode(seed)),
                 address: address_string(prefix, &raw),
             });
         }
@@ -140,13 +181,29 @@ pub fn new_wallet(network: &str) -> Result<Wallet, String> {
 }
 
 /// A freshly generated wallet backed by a recovery phrase.
-#[wasm_bindgen(getter_with_clone)]
+#[wasm_bindgen]
 pub struct MnemonicWallet {
-    /// The BIP-39 recovery phrase. **This is the secret** — it restores the wallet
-    /// anywhere, forever.
-    pub mnemonic: String,
-    /// The `zkas:` shielded address the phrase derives.
-    pub address: String,
+    mnemonic: Zeroizing<String>,
+    address: String,
+}
+
+#[wasm_bindgen]
+impl MnemonicWallet {
+    #[wasm_bindgen(getter)]
+    pub fn address(&self) -> String {
+        self.address.clone()
+    }
+
+    /// Return the recovery phrase for one-time backup display.
+    pub fn mnemonic(&self) -> String {
+        self.mnemonic.clone()
+    }
+}
+
+impl Drop for MnemonicWallet {
+    fn drop(&mut self) {
+        self.mnemonic.zeroize();
+    }
 }
 
 /// Generate a new wallet as a **12-word recovery phrase** (128 bits of entropy).
@@ -166,7 +223,7 @@ pub fn new_wallet_mnemonic(network: &str) -> Result<MnemonicWallet, String> {
     let secret = secret_from_phrase(&phrase, "")?;
     let raw = address_bytes_from_seed(secret)
         .ok_or_else(|| "derived key is not a valid Orchard spending key".to_string())?;
-    Ok(MnemonicWallet { mnemonic: phrase, address: address_string(prefix, &raw) })
+    Ok(MnemonicWallet { mnemonic: Zeroizing::new(phrase), address: address_string(prefix, &raw) })
 }
 
 /// Derive the spending key of ONE ACCOUNT from a recovery phrase, as 64-hex.
@@ -432,7 +489,18 @@ pub fn verify_and_sign_payment(
     // trivially satisfied; the checks that bite are the commitment checks and the
     // max-fee ceiling.
     let signer = SoftwareSigner::new(seed).map_err(|e| e.to_string())?;
-    let bundle_fee = u64::try_from(bundle.value_balance).unwrap_or(0);
+    // The fee is the bundle's own value balance. It must be a non-negative
+    // number that fits in u64. A negative balance means the bundle creates
+    // value, so refuse it here instead of treating it as zero which would
+    // let a bad bundle pass the max-fee check below.
+    if bundle.value_balance < 0 {
+        return Err("bundle has negative value balance".to_string());
+    }
+    let bundle_fee = u64::try_from(bundle.value_balance)
+        .map_err(|_| "bundle fee does not fit in u64".to_string())?;
+    if bundle_fee == 0 || bundle_fee > max_fee_sompi {
+        return Err("bundle fee is outside the allowed range".to_string());
+    }
     let prepared = PreparedPayment {
         version: PreparedPayment::VERSION,
         network_domain: genesis,
