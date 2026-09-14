@@ -167,7 +167,13 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, sock
 pub fn stop() {
     if let Some(r) = ENGINE.lock().unwrap().take() {
         let _ = r.shutdown.send(());
-        r.runtime.shutdown_background();
+        // `shutdown_background()` dropped the serve task at its next await point — which
+        // was BEFORE `flush_checkpoints_on_exit` ran — so every stop (node switch, Tor
+        // toggle, the background worker) threw away up to CHECKPOINT_EVERY blocks of scan
+        // progress that the next start then redid. Give the graceful path (a bounded ≤5 s
+        // connection drain, then the checkpoint flush) time to finish before tearing the
+        // runtime down.
+        r.runtime.shutdown_timeout(std::time::Duration::from_secs(15));
     }
 }
 
