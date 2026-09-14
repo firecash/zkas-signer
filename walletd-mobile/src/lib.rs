@@ -148,6 +148,8 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, sock
             r.prefetch_depth = 8;
             // Keep prefetched pages warm long enough for a slow device to reach them.
             r.page_cache_ttl_secs = 60;
+            // A phone must never be handed a whole-chain scan: refuse and explain.
+            r.max_full_scan_blocks = Some(1_500_000);
             r
         },
         idle_timeout: None,
