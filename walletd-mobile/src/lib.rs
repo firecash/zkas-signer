@@ -142,12 +142,17 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, sock
             r.sync_wallets = 1;
             r.load_wallets = 1;
             r.warm_wallets = 1;
-            r.page_cache_entries = 256;
             // Concurrent page read-ahead: hide node round-trip latency on a fetch-bound
             // phone by keeping several full pages in flight at once (default is 1).
             r.prefetch_depth = 8;
             // Keep prefetched pages warm long enough for a slow device to reach them.
             r.page_cache_ttl_secs = 60;
+            // The cache exists to share decoded pages BETWEEN wallets; this daemon has
+            // one, which reads each page exactly once. It only needs the pages in flight
+            // (the read-ahead plus the one being ingested and its one-page prefetch): the
+            // old 256 held ~118 MB of dead decoded pages through a restore, on top of the
+            // loaded checkpoint, which is the moment Android low-memory-kills the app.
+            r.page_cache_entries = r.prefetch_depth + 2;
             // A phone must never be handed a whole-chain scan: refuse and explain.
             r.max_full_scan_blocks = Some(1_500_000);
             r
