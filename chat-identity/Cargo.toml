@@ -1,0 +1,39 @@
+[package]
+name = "zkas-chat-identity"
+version = "0.1.0"
+edition = "2021"
+description = "Chat identity for ZKas: the wallet's recovery phrase -> a standard Nostr key (NIP-06). Deliberately SEPARATE from firecash-signer so chat code never shares a dependency or a code path with the money signer."
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# NOTE ON SCOPE. This crate is chat-only and must stay that way:
+#   - it has NO dependency on kaspa-shielded-core, orchard, or zkas-signer;
+#   - it cannot derive a spending key, build a bundle, or sign a payment;
+#   - the money signer does not depend on it either, so adding this changes
+#     nothing about how a payment is produced or verified.
+# A bug here can cost someone their chat pseudonym. It cannot cost them coins.
+[dependencies]
+# Same BIP-39 implementation the wallet already uses, so one phrase means one
+# thing everywhere.
+bip39 = { version = "2", default-features = false, features = ["std"] }
+# Pure-Rust secp256k1. NOT the C `secp256k1` crate: this has to build for
+# wasm32 and for iOS/Android without a C toolchain, which is the same reason
+# MOBILE-LIBS had to force blake3's `pure` feature.
+k256 = { version = "0.13", default-features = false, features = ["arithmetic", "schnorr"] }
+hmac = "0.12"
+sha2 = "0.10"
+bech32 = "0.9"
+hex = "0.4"
+# Input parsing ONLY. The canonical NIP-01 serialization is hand-written below,
+# because serde_json escapes control characters as \uXXXX and NIP-01 forbids that.
+serde_json = "1"
+zeroize = "1"
+wasm-bindgen = "0.2"
+
+[dev-dependencies]
+
+# Only for the wasm clock used by the proof-of-work deadline.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
