@@ -1,17 +1,60 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
+ * The wallet's full viewing key (`ak ‖ nk ‖ rivk`, 96 bytes) as hex, derived from
+ * the seed on-device. Send this to the daemon's non-custodial `/prepare` endpoint so
+ * it can scan watch-only and build the payment proof. Grants viewing, not spend.
+ */
+export function fvk_hex(seed_hex: string): string;
+/**
+ * Generate a new wallet as a **12-word recovery phrase** (128 bits of entropy).
+ *
+ * Twelve words is not a shortcut: an Orchard key lives on the Pallas curve, whose
+ * ~128-bit security caps what any seed can buy. A longer phrase would be more to
+ * write down for no additional strength — and a phrase people actually finish
+ * writing down is the one that saves their funds.
+ */
+export function new_wallet_mnemonic(network: string): MnemonicWallet;
+/**
+ * Derive the spending key of ONE ACCOUNT from a recovery phrase, as 64-hex.
+ *
+ * This is what makes one phrase back up many wallets. ZIP-32 gives every account
+ * index its own independent key under `m/32'/coin'/account'`, so account 0, 1, 2…
+ * are unlinkable on-chain yet all restore from the same twelve words. The result
+ * is a plain 32-byte secret, so every existing path — address, viewing key,
+ * signing, spending — consumes it unchanged.
+ *
+ * Account 0 is the wallet the phrase creates by default; `add account` simply
+ * asks for the next index, and needs no new backup.
+ */
+export function account_seed_hex(mnemonic: string, account: number): string;
+/**
+ * Derive the `zkas:` address for an existing seed on a network.
+ */
+export function address_from_seed(seed_hex: string, network: string): string;
+/**
+ * The `zkas:` address of one account of a recovery phrase, without going through
+ * the raw key — so a caller can preview or discover accounts cheaply.
+ */
+export function account_address(mnemonic: string, network: string, account: number): string;
+/**
+ * Sign `message`, proving control of the seed's address on `network`. The
+ * returned `signature_hex` is `fvk ‖ sig`, interoperable with `shielded-pay` and
+ * the mining-pool claim verifier.
+ */
+export function sign(seed_hex: string, network: string, message: string): Signature;
+/**
  * Verify that `signature_hex` (`fvk ‖ sig`) proves control of `address` over
  * `message`. Returns `true` iff valid. The network is taken from the address
  * prefix, matching how the signature was produced.
  */
 export function verify(address: string, message: string, signature_hex: string): boolean;
 /**
- * The wallet's full viewing key (`ak ‖ nk ‖ rivk`, 96 bytes) as hex, derived from
- * the seed on-device. Send this to the daemon's non-custodial `/prepare` endpoint so
- * it can scan watch-only and build the payment proof. Grants viewing, not spend.
+ * Generate a brand-new wallet: a random 32-byte seed (browser CSPRNG) and its
+ * `zkas:` address. Retries the negligibly-rare case where a random seed is
+ * not a valid Orchard spending key.
  */
-export function fvk_hex(seed_hex: string): string;
+export function new_wallet(network: string): Wallet;
 /**
  * Device half of a **non-custodial payment**. Given the wallet seed and, from the
  * server's `prepare` response, a spend's `alpha` randomizer and the payment `sighash`,
@@ -20,23 +63,22 @@ export function fvk_hex(seed_hex: string): string;
  */
 export function sign_spend_auth(seed_hex: string, alpha_hex: string, sighash_hex: string): string;
 /**
- * Derive the `zkas:` address for an existing seed on a network.
+ * True if `secret` is a well-formed recovery phrase (right words, right checksum).
+ * Lets the UI validate what was typed before trying to open a wallet with it.
  */
-export function address_from_seed(seed_hex: string, network: string): string;
-/**
- * Generate a brand-new wallet: a random 32-byte seed (browser CSPRNG) and its
- * `zkas:` address. Retries the negligibly-rare case where a random seed is
- * not a valid Orchard spending key.
- */
-export function new_wallet(network: string): Wallet;
+export function is_valid_mnemonic(secret: string): boolean;
 /**
  * **The anti-blind-signing entry point** for the non-custodial send.
  *
  * Given the server's `prepare` response, this VERIFIES on the device — using only the
  * wallet's own viewing key — that the unsigned `bundle_hex` really pays `to` the amount
- * `amount_sompi` for a fee of `fee_sompi`, with any other output being change back to
- * this wallet. Only if that holds does it recompute the sighash **from the verified
- * bundle itself** (never trusting a server-supplied hash or network domain) and return
+ * `amount_sompi`, with any other output being change back to this wallet, and that the
+ * fee the bundle actually pays (its public value balance — **never** a number the
+ * server reported) is positive and at most `max_fee_sompi`. Without that ceiling a
+ * malicious daemon could burn the wallet's entire change as "fee" — collectable by a
+ * miner, plausibly the daemon's own pool — while every commitment check still passed.
+ * Only if all of that holds does it recompute the sighash **from the verified bundle
+ * itself** (never trusting a server-supplied hash or network domain) and return
  * the RedPallas spend-auth signatures.
  *
  * `disclosure_json` is the `disclosure` array from `prepare`, `alphas_json` its
@@ -45,13 +87,7 @@ export function new_wallet(network: string): Wallet;
  * commitment here, and a bundle that dodges the checks won't match the sighash this
  * function signs. Returns `[{index, sig}]` JSON on success, or throws with the reason.
  */
-export function verify_and_sign_payment(seed_hex: string, network: string, to_address: string, amount_sompi: bigint, fee_sompi: bigint, bundle_hex: string, disclosure_json: string, alphas_json: string): string;
-/**
- * Sign `message`, proving control of the seed's address on `network`. The
- * returned `signature_hex` is `fvk ‖ sig`, interoperable with `shielded-pay` and
- * the mining-pool claim verifier.
- */
-export function sign(seed_hex: string, network: string, message: string): Signature;
+export function verify_and_sign_payment(seed_hex: string, network: string, to_address: string, amount_sompi: bigint, max_fee_sompi: bigint, bundle_hex: string, disclosure_json: string, alphas_json: string): string;
 /**
  * r" Deferred promise - an object that has `resolve()` and `reject()`
  * r" functions that can be called outside of the promise body.
@@ -61,6 +97,16 @@ export function sign(seed_hex: string, network: string, message: string): Signat
  * r" @category General
  */
 export function defer(): Promise<any>;
+/**
+ * Present panic logs to the user in the browser.
+ *
+ * This function should be called after a panic has occurred and the
+ * browser-based panic hook has been activated. It will present the
+ * collected panic logs in a full-screen `DIV` in the browser.
+ * @see {@link initBrowserPanicHook}
+ * @category General
+ */
+export function presentPanicHookLogs(): void;
 /**
  * Initialize Rust panic handler in browser mode.
  *
@@ -73,16 +119,6 @@ export function defer(): Promise<any>;
  * @category General
  */
 export function initBrowserPanicHook(): void;
-/**
- * Present panic logs to the user in the browser.
- *
- * This function should be called after a panic has occurred and the
- * browser-based panic hook has been activated. It will present the
- * collected panic logs in a full-screen `DIV` in the browser.
- * @see {@link initBrowserPanicHook}
- * @category General
- */
-export function presentPanicHookLogs(): void;
 /**
  * Initialize Rust panic handler in console mode.
  *
@@ -207,6 +243,30 @@ export class Address {
   set setPrefix(value: string);
 }
 /**
+ * @category General
+ */
+export class Hash {
+  free(): void;
+  constructor(hex_str: string);
+  toString(): string;
+}
+/**
+ * A freshly generated wallet backed by a recovery phrase.
+ */
+export class MnemonicWallet {
+  private constructor();
+  free(): void;
+  /**
+   * The BIP-39 recovery phrase. **This is the secret** — it restores the wallet
+   * anywhere, forever.
+   */
+  mnemonic: string;
+  /**
+   * The `zkas:` shielded address the phrase derives.
+   */
+  address: string;
+}
+/**
  * A message signature asserting control of an address.
  */
 export class Signature {
@@ -243,23 +303,35 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
-  readonly __wbg_get_signature_address: (a: number) => [number, number];
-  readonly __wbg_get_signature_signature_hex: (a: number) => [number, number];
-  readonly __wbg_set_signature_address: (a: number, b: number, c: number) => void;
-  readonly __wbg_set_signature_signature_hex: (a: number, b: number, c: number) => void;
+  readonly __wbg_get_mnemonicwallet_address: (a: number) => [number, number];
+  readonly __wbg_get_mnemonicwallet_mnemonic: (a: number) => [number, number];
+  readonly __wbg_mnemonicwallet_free: (a: number, b: number) => void;
+  readonly __wbg_set_mnemonicwallet_address: (a: number, b: number, c: number) => void;
+  readonly __wbg_set_mnemonicwallet_mnemonic: (a: number, b: number, c: number) => void;
   readonly __wbg_signature_free: (a: number, b: number) => void;
   readonly __wbg_wallet_free: (a: number, b: number) => void;
+  readonly account_address: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+  readonly account_seed_hex: (a: number, b: number, c: number) => [number, number, number, number];
   readonly address_from_seed: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly fvk_hex: (a: number, b: number) => [number, number, number, number];
+  readonly is_valid_mnemonic: (a: number, b: number) => number;
   readonly new_wallet: (a: number, b: number) => [number, number, number];
+  readonly new_wallet_mnemonic: (a: number, b: number) => [number, number, number];
   readonly sign: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
   readonly sign_spend_auth: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
   readonly verify: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
   readonly verify_and_sign_payment: (a: number, b: number, c: number, d: number, e: number, f: number, g: bigint, h: bigint, i: number, j: number, k: number, l: number, m: number, n: number) => [number, number, number, number];
+  readonly __wbg_get_signature_address: (a: number) => [number, number];
+  readonly __wbg_get_signature_signature_hex: (a: number) => [number, number];
   readonly __wbg_get_wallet_address: (a: number) => [number, number];
   readonly __wbg_get_wallet_seed_hex: (a: number) => [number, number];
+  readonly __wbg_set_signature_address: (a: number, b: number, c: number) => void;
+  readonly __wbg_set_signature_signature_hex: (a: number, b: number, c: number) => void;
   readonly __wbg_set_wallet_address: (a: number, b: number, c: number) => void;
   readonly __wbg_set_wallet_seed_hex: (a: number, b: number, c: number) => void;
+  readonly __wbg_hash_free: (a: number, b: number) => void;
+  readonly hash_constructor: (a: number, b: number) => number;
+  readonly hash_toString: (a: number) => [number, number];
   readonly __wbg_address_free: (a: number, b: number) => void;
   readonly address_constructor: (a: number, b: number) => number;
   readonly address_payload: (a: number) => [number, number];
