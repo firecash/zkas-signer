@@ -156,6 +156,84 @@ jobs:
   # Linux or that the code compiled — neither touches JNA opening the .so out of
   # an APK, symbol resolution, or values crossing the boundary. An
   # UnsatisfiedLinkError looks exactly like a green build until this runs.
+  # The on-device wallet ENGINE for iOS — "run on this phone" mode.
+  #
+  # The `ios` job above ships the signer (key custody and payment authorisation).
+  # This one ships zkas-walletd itself, so an iPhone can scan the chain and serve
+  # the app over loopback exactly as Android does, rather than trusting a hosted
+  # daemon. Same recipe as `ios`, different crate: that one is proven, so the only
+  # real question this answers is whether the whole walletd stack — tokio, the gRPC
+  # client, Halo 2 proving — compiles for aarch64-apple-ios. The crate already
+  # declares `staticlib` and gates pure-Rust blake3 and no-asm hashes on
+  # `target_os = "ios"`, so it was written expecting this.
+  ios-engine:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the node workspace this crate builds against
+        # Pinned to the security fork, matching the wallet's desktop CI: the engine
+        # must sign spends under the consensus rules the network is actually on.
+        # A shallow clone cannot check out an arbitrary SHA, hence fetch-by-SHA.
+        env:
+          RK_SHA: baa9f4c4429a22808abdf0e076a635777cb8bbad
+        run: |
+          mkdir -p ../rusty-kaspa && cd ../rusty-kaspa
+          git init -q
+          git remote add origin https://github.com/firecash/zkas-rusty.git
+          git fetch -q --depth 1 origin "$RK_SHA"
+          git checkout -q FETCH_HEAD
+          echo "node workspace at $(git rev-parse --short HEAD)"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - name: Build the static libraries
+        working-directory: walletd-mobile
+        run: |
+          cargo build --release --target aarch64-apple-ios
+          cargo build --release --target aarch64-apple-ios-sim
+          cargo build --release --target x86_64-apple-ios
+      - name: Generate the Swift bindings
+        working-directory: walletd-mobile
+        run: |
+          cargo build --release
+          cargo run --bin uniffi-bindgen -- generate \
+            --library target/release/libzkas_walletd_mobile.dylib \
+            --language swift --out-dir ./swift
+          echo "generated:"; ls -1 swift | sed 's/^/  /'
+      - name: Assemble the XCFramework
+        working-directory: walletd-mobile
+        run: |
+          mkdir -p headers
+          cp swift/zkas_walletd_mobileFFI.h headers/
+          cp swift/zkas_walletd_mobileFFI.modulemap headers/module.modulemap
+          mkdir -p sim
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libzkas_walletd_mobile.a \
+            target/x86_64-apple-ios/release/libzkas_walletd_mobile.a \
+            -output sim/libzkas_walletd_mobile.a
+          xcodebuild -create-xcframework \
+            -library target/aarch64-apple-ios/release/libzkas_walletd_mobile.a -headers headers \
+            -library sim/libzkas_walletd_mobile.a -headers headers \
+            -output ZkasEngine.xcframework
+      - name: Confirm the engine surface the app depends on crossed the bridge
+        working-directory: walletd-mobile
+        run: |
+          # A binding that silently loses a function is a real failure mode here: the
+          # Kotlin build caught exactly that when an attribute drifted off
+          # `set_debug_logs`. Swift has no compile step in this job, so assert instead.
+          for fn in start stop port logs setDebugLogs releaseMemory setMemoryBudgetMb; do
+            grep -q "func $fn" swift/zkas_walletd_mobile.swift \
+              || { echo "MISSING from the Swift bindings: $fn"; exit 1; }
+            echo "  ok $fn"
+          done
+          du -sh ZkasEngine.xcframework
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zkas-engine-ios
+          path: |
+            walletd-mobile/ZkasEngine.xcframework/**
+            walletd-mobile/swift/**
+
   device:
     needs: android
     runs-on: ubuntu-latest
