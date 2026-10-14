@@ -186,6 +186,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      - name: protoc
+        # The engine embeds the node gRPC client, so prost-build compiles the node protos
+        # and needs protoc on PATH. The signer job above never hit this because the signer
+        # crate has no gRPC in it. macOS runners do not ship protoc.
+        run: brew install protobuf
       - name: Build the static libraries
         working-directory: walletd-mobile
         run: |
