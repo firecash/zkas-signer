@@ -38,3 +38,11 @@ lto = "thin"
 # SDK dir), so an unstripped build carried ~8 MB of .symtab/.strtab per ABI —
 # a third of each library and most of the 70 MB sideload APK.
 strip = "symbols"
+
+# The node workspace patches zakura-orchard 2.2.0 with one additive function
+# (`Note::from_parts_with_commitment`, zkas-rusty 0fb6f65) that zkas-walletd calls.
+# A [patch] only applies in the workspace that declares it, and this crate is its own
+# workspace, so it must repeat the patch or zkas-walletd fails to compile against the
+# registry crate.
+[patch.crates-io]
+zakura-orchard = { path = "../../rusty-kaspa/patches/zakura-orchard-2.2.0" }
