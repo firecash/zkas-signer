@@ -49,7 +49,7 @@ shippable `cdylib`/`staticlib` needs the Android NDK and Xcode toolchains; the
 ## Use it
 
 Every release ships a release AAR, an `ZkasMobile.xcframework.zip`, a Maven package
-on GitHub Packages, and a SwiftPM pin. CI proves each release on a real Android
+in a Maven registry (moving to GitLab after the GitHub suspension), and a SwiftPM pin. CI proves each release on a real Android
 emulator (`device` job) before anything is published.
 
 **Android (Gradle):**
@@ -62,7 +62,7 @@ emulator (`device` job) before anything is published.
     }
     dependencies { implementation("info.zkas:zkas-mobile:0.1.3") }
 
-or drop `zkas-mobile-release.aar` from the GitHub release straight into `libs/`.
+or drop `zkas-mobile-release.aar` from the release straight into `libs/`.
 
 **iOS (SwiftPM):** add `https://gitlab.com/zkas-group/zkas-signer` at tag
 `mobile-v0.1.3` — the root `Package.swift` pins that release's XCFramework by
@@ -75,6 +75,6 @@ verifier can observe.
 
 ## Status
 
-Published: tag `mobile-v0.1.3` (AAR + XCFramework + Maven on GitHub Packages +
+Published: tag `mobile-v0.1.3` (AAR + XCFramework + Maven package +
 SwiftPM). Maven Central is pending a Sonatype account. 12 tests, all four CI jobs
 (test, android, ios, device) gate every release.
