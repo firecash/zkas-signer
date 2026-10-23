@@ -64,7 +64,7 @@ emulator (`device` job) before anything is published.
 
 or drop `zkas-mobile-release.aar` from the GitHub release straight into `libs/`.
 
-**iOS (SwiftPM):** add `https://github.com/firecash/zkas-signer` at tag
+**iOS (SwiftPM):** add `https://gitlab.com/zkas-group/zkas-signer` at tag
 `mobile-v0.1.3` — the root `Package.swift` pins that release's XCFramework by
 checksum.
 

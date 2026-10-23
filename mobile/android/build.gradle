@@ -57,7 +57,7 @@ afterEvaluate {
                 pom {
                     name = 'ZKas Mobile'
                     description = 'ZKas key custody and payment authorization for Android'
-                    url = 'https://github.com/firecash/zkas-signer'
+                    url = 'https://gitlab.com/zkas-group/zkas-signer'
                     licenses {
                         license { name = 'MIT OR Apache-2.0' }
                     }

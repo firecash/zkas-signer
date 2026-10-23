@@ -1,6 +1,6 @@
 # zkas-signer
 
-Client-side Orchard key primitives for [ZKas](https://github.com/firecash/zkas-rusty),
+Client-side Orchard key primitives for [ZKas](https://gitlab.com/zkas-group/zkas-rusty),
 compiled to WebAssembly. It runs entirely on the user's device — in a browser or a Capacitor
 mobile app — and **keys never leave the page**.
 
@@ -19,9 +19,9 @@ here (spend key only), so a server can never spend.
 
 ## Who uses it
 
-- **[firecash-paper-wallet](https://github.com/firecash/firecash-paper-wallet)** — an offline,
+- **[firecash-paper-wallet](https://gitlab.com/zkas-group/zkas-paper-wallet)** — an offline,
   single-file cold-storage generator (this crate's wasm inlined as base64).
-- **[zkas-wallet](https://github.com/firecash/zkas-wallet)** — the web/mobile wallet's
+- **[zkas-wallet](https://gitlab.com/zkas-group/zkas-wallet)** — the web/mobile wallet's
   on-device "Local" tools (cold-wallet generation + signing).
 
 ## Build
