@@ -49,15 +49,14 @@ shippable `cdylib`/`staticlib` needs the Android NDK and Xcode toolchains; the
 ## Use it
 
 Every release ships a release AAR, an `ZkasMobile.xcframework.zip`, a Maven package
-in a Maven registry (moving to GitLab after the GitHub suspension), and a SwiftPM pin. CI proves each release on a real Android
+in this project's GitLab Maven registry, and a SwiftPM pin. CI proves each release on a real Android
 emulator (`device` job) before anything is published.
 
 **Android (Gradle):**
 
     repositories {
       maven {
-        url = uri("https://maven.pkg.github.com/firecash/zkas-signer")
-        credentials { username = GITHUB_USER; password = GITHUB_TOKEN } // any token with read:packages
+        url = uri("https://gitlab.com/api/v4/projects/88003612/packages/maven") // public, no credentials
       }
     }
     dependencies { implementation("info.zkas:zkas-mobile:0.1.3") }
@@ -75,6 +74,9 @@ verifier can observe.
 
 ## Status
 
-Published: tag `mobile-v0.1.3` (AAR + XCFramework + Maven package +
-SwiftPM). Maven Central is pending a Sonatype account. 12 tests, all four CI jobs
+Published: tag `mobile-v0.1.3` (AAR + XCFramework + Maven package + SwiftPM).
+Its binaries were hosted on GitHub and were lost with the suspended account on
+2026-10-23; they are being re-published to GitLab by the `publish` CI job (manual
+pipeline, `PUBLISH=true MOBILE_VERSION=0.1.3`), until which the Maven coordinate and
+the SwiftPM binary do not resolve. Maven Central is pending a Sonatype account. 12 tests, all four CI jobs
 (test, android, ios, device) gate every release.

@@ -42,10 +42,10 @@ dependencies {
     api 'net.java.dev.jna:jna:5.14.0@aar'
 }
 
-// Published to GitHub Packages rather than Maven Central: Central needs a
-// Sonatype account, an owned group id and GPG signing keys, none of which exist
-// yet. GitHub Packages authenticates with the token CI already has, so consumers
-// can depend on a real coordinate today instead of a file path.
+// Published to this project's GitLab Maven registry rather than Maven Central:
+// Central needs a Sonatype account, an owned group id and GPG signing keys, none of
+// which exist yet. CI authenticates with its job token; the registry is public, so
+// consumers can depend on a real coordinate today instead of a file path.
 afterEvaluate {
     publishing {
         publications {
@@ -66,11 +66,15 @@ afterEvaluate {
         }
         repositories {
             maven {
-                name = 'GitHubPackages'
-                url = 'https://maven.pkg.github.com/firecash/zkas-signer'
-                credentials {
-                    username = System.getenv('GITHUB_ACTOR')
-                    password = System.getenv('GITHUB_TOKEN')
+                name = 'GitLab'
+                // zkas-group/zkas-signer (project 88003612)
+                url = "${System.getenv('CI_API_V4_URL') ?: 'https://gitlab.com/api/v4'}/projects/${System.getenv('CI_PROJECT_ID') ?: '88003612'}/packages/maven"
+                credentials(HttpHeaderCredentials) {
+                    name = System.getenv('CI_JOB_TOKEN') ? 'Job-Token' : 'Private-Token'
+                    value = System.getenv('CI_JOB_TOKEN') ?: System.getenv('GITLAB_TOKEN')
+                }
+                authentication {
+                    header(HttpHeaderAuthentication)
                 }
             }
         }

@@ -1,0 +1,183 @@
+# Packages zkas-mobile for both platforms (moved from GitHub Actions when the GitHub
+# account was suspended, 2026-10-23).
+#
+# CI rather than a local script because neither artifact can be produced on the
+# build box alone: an XCFramework needs Xcode, which needs macOS. GitLab's hosted
+# macOS runners need a paid tier, so the iOS jobs are manual until a Mac runner is
+# attached. The emulator job needs KVM, which GitLab's shared runners do not offer:
+# it runs on the build box's project runner (tag `zkas-142`).
+#
+# Publishing: run a pipeline from the web UI with PUBLISH=true and MOBILE_VERSION=x.y.z.
+# It uploads the XCFramework to this project's generic package registry, pins
+# Package.swift to it, tags mobile-v<version>, creates the GitLab release, and
+# publishes the AAR to this project's Maven registry (info.zkas:zkas-mobile).
+
+variables:
+  ZKAS_RUSTY_URL: "https://gitlab.com/zkas-group/zkas-rusty.git"
+  # Pinned to the security fork, matching the wallet's desktop CI: the engine must
+  # sign spends under the consensus rules the network is actually on.
+  ENGINE_RK_SHA: "baa9f4c4429a22808abdf0e076a635777cb8bbad"
+  PUBLISH: "false"
+  MOBILE_VERSION: "0.1.0"
+  ANDROID_IMAGE: "cimg/android:2024.10.1-ndk"
+
+stages: [test, build, device, publish]
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^mobile-v/
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: ["mobile/**/*", "src/**/*", ".gitlab-ci.yml"]
+
+.node_workspace: &node_workspace
+  - rm -rf ../rusty-kaspa && git clone -q --depth 1 "$ZKAS_RUSTY_URL" ../rusty-kaspa
+
+test:
+  stage: test
+  image: rust:1-bookworm
+  script:
+    - *node_workspace
+    - cargo test --manifest-path mobile/Cargo.toml
+
+android:
+  stage: build
+  image: $ANDROID_IMAGE
+  script:
+    - *node_workspace
+    - curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --target aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+    - source "$HOME/.cargo/env"
+    - cargo install cargo-ndk --locked
+    - cd mobile
+    # x86_64 builds again: kaspa-hashes/build.rs honours its own `no-asm` feature,
+    # which this crate requests for mobile.
+    - cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ./jniLibs build --release
+    # cargo-ndk copies EVERY cdylib the build produced; firecash-signer and the
+    # workflow-* crates all declare one, which made 57% of the .aar's native payload
+    # files nothing opens. UniFFI's Kotlin loads exactly `zkas_mobile`.
+    - find jniLibs -name '*.so' ! -name 'libzkas_mobile.so' -print -delete | sed 's/^/  dropped /'
+    - cargo build --release
+    - cargo run --bin uniffi-bindgen -- generate --library target/release/libzkas_mobile.so --language kotlin --out-dir ./kotlin
+    - mkdir -p android/src/main/jniLibs android/src/main/java
+    - cp -r jniLibs/* android/src/main/jniLibs/ && cp -r kotlin/* android/src/main/java/
+    - (cd android && gradle --no-daemon assembleRelease)
+    - find android/build/outputs/aar -type f && du -sh android/build/outputs/aar/*.aar
+  artifacts:
+    paths: [mobile/android/build/outputs/aar/, mobile/jniLibs/, mobile/kotlin/]
+    expire_in: 30 days
+
+ios:
+  stage: build
+  tags: [saas-macos-medium-m1]
+  image: macos-14-xcode-15
+  rules:
+    - if: $PUBLISH == "true"
+    - when: manual
+      allow_failure: true
+  script:
+    - *node_workspace
+    - curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --target aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+    - source "$HOME/.cargo/env"
+    - cd mobile
+    - cargo build --release --target aarch64-apple-ios
+    - cargo build --release --target aarch64-apple-ios-sim
+    - cargo build --release --target x86_64-apple-ios
+    - cargo build --release
+    - cargo run --bin uniffi-bindgen -- generate --library target/release/libzkas_mobile.dylib --language swift --out-dir ./swift
+    # Device and simulator cannot share an xcframework slice, and the two simulator
+    # architectures must be lipo'd into one before they can.
+    - mkdir -p headers sim && cp swift/zkas_mobileFFI.h headers/ && cp swift/zkas_mobileFFI.modulemap headers/module.modulemap
+    - lipo -create target/aarch64-apple-ios-sim/release/libzkas_mobile.a target/x86_64-apple-ios/release/libzkas_mobile.a -output sim/libzkas_mobile.a
+    - xcodebuild -create-xcframework -library target/aarch64-apple-ios/release/libzkas_mobile.a -headers headers -library sim/libzkas_mobile.a -headers headers -output ZkasMobile.xcframework
+    - mkdir -p package/Sources/ZkasMobile && cp -r ZkasMobile.xcframework package/ && cp swift/zkas_mobile.swift package/Sources/ZkasMobile/ && cp packaging/Package.swift.template package/Package.swift
+    - zip -qr ZkasMobile.xcframework.zip ZkasMobile.xcframework
+    - echo "xcframework zip sha256 $(shasum -a 256 ZkasMobile.xcframework.zip | cut -d' ' -f1)"
+  artifacts:
+    paths: [mobile/package/, mobile/ZkasMobile.xcframework.zip]
+    expire_in: 30 days
+
+# The on-device wallet ENGINE for iOS ("run on this phone" mode): zkas-walletd itself,
+# so an iPhone can scan and serve the app over loopback as Android does.
+ios-engine:
+  stage: build
+  tags: [saas-macos-medium-m1]
+  image: macos-14-xcode-15
+  rules:
+    - when: manual
+      allow_failure: true
+  script:
+    - rm -rf ../rusty-kaspa && git init -q ../rusty-kaspa
+    - git -C ../rusty-kaspa fetch -q --depth 1 "$ZKAS_RUSTY_URL" "$ENGINE_RK_SHA" && git -C ../rusty-kaspa checkout -q FETCH_HEAD
+    - curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --target aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+    - source "$HOME/.cargo/env"
+    # The engine embeds the node gRPC client, so prost-build needs protoc.
+    - brew install protobuf
+    - cd walletd-mobile
+    - cargo build --release --target aarch64-apple-ios
+    - cargo build --release --target aarch64-apple-ios-sim
+    - cargo build --release --target x86_64-apple-ios
+    - cargo build --release
+    - cargo run --bin uniffi-bindgen -- generate --library target/release/libzkas_walletd_mobile.dylib --language swift --out-dir ./swift
+    - mkdir -p headers sim && cp swift/zkas_walletd_mobileFFI.h headers/ && cp swift/zkas_walletd_mobileFFI.modulemap headers/module.modulemap
+    - lipo -create target/aarch64-apple-ios-sim/release/libzkas_walletd_mobile.a target/x86_64-apple-ios/release/libzkas_walletd_mobile.a -output sim/libzkas_walletd_mobile.a
+    - xcodebuild -create-xcframework -library target/aarch64-apple-ios/release/libzkas_walletd_mobile.a -headers headers -library sim/libzkas_walletd_mobile.a -headers headers -output ZkasEngine.xcframework
+    # A binding that silently loses a function is a real failure mode here; Swift has
+    # no compile step in this job, so assert the surface the app depends on.
+    - for fn in start stop port logs setDebugLogs releaseMemory setMemoryBudgetMb; do grep -q "func $fn" swift/zkas_walletd_mobile.swift || { echo "MISSING from the Swift bindings $fn"; exit 1; }; done
+  artifacts:
+    paths: [walletd-mobile/ZkasEngine.xcframework/, walletd-mobile/swift/]
+    expire_in: 30 days
+
+# The only job that proves the FFI works: JNA opening the .so out of an APK, symbol
+# resolution and values crossing the boundary. Needs KVM (build-box runner).
+device:
+  stage: device
+  tags: [zkas-142]
+  needs: [android]
+  rules:
+    - if: $PUBLISH == "true"
+    - when: manual
+      allow_failure: true
+  script:
+    - *node_workspace
+    - cd mobile/android
+    - mkdir -p src/main/jniLibs src/main/java
+    - cp -r ../jniLibs/* src/main/jniLibs/ && cp -r ../kotlin/* src/main/java/
+    - gradle --no-daemon connectedDebugAndroidTest
+
+publish:
+  stage: publish
+  image: $ANDROID_IMAGE
+  rules:
+    - if: $PUBLISH == "true" && $CI_PIPELINE_SOURCE == "web"
+  needs: [test, android, ios, device]
+  script:
+    - API="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
+    - ZIP=mobile/ZkasMobile.xcframework.zip
+    - SUM=$(sha256sum "$ZIP" | cut -d' ' -f1)
+    - URL="$API/packages/generic/zkas-mobile/$MOBILE_VERSION/ZkasMobile.xcframework.zip"
+    - |
+      curl -fsS -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$ZIP" "$URL" > /dev/null
+    # The Swift source lives in the repo and only the binary comes from the release,
+    # so both are committed before the tag is cut.
+    - mkdir -p Sources/ZkasMobile && cp mobile/package/Sources/ZkasMobile/zkas_mobile.swift Sources/ZkasMobile/
+    - |
+      sed -i -E "s#url: \"[^\"]*\"#url: \"$URL\"#; s#checksum: \"[^\"]*\"#checksum: \"$SUM\"#" Package.swift
+    - git config user.name firecash && git config user.email dev@firecash.info
+    - git add Package.swift Sources/ZkasMobile
+    - git commit -m "mobile $MOBILE_VERSION - Swift package pinned to the released XCFramework" || echo "nothing to commit"
+    # Pushing needs a project access token with write_repository in PUSH_TOKEN.
+    - git push "https://oauth2:${PUSH_TOKEN}@gitlab.com/$CI_PROJECT_PATH.git" HEAD:main
+    - git tag -f "mobile-v$MOBILE_VERSION" && git push -f "https://oauth2:${PUSH_TOKEN}@gitlab.com/$CI_PROJECT_PATH.git" "mobile-v$MOBILE_VERSION"
+    - AAR=$(find mobile/android/build/outputs/aar -name '*.aar' | head -1)
+    - |
+      curl -fsS -H "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$AAR" "$API/packages/generic/zkas-mobile/$MOBILE_VERSION/zkas-mobile-release.aar" > /dev/null
+    - |
+      curl -fsS -H "JOB-TOKEN: $CI_JOB_TOKEN" -X POST "$API/releases" \
+        --data-urlencode "tag_name=mobile-v$MOBILE_VERSION" --data-urlencode "name=zkas-mobile $MOBILE_VERSION" \
+        --data-urlencode "description=Native ZKas key custody and payment authorization. Swift: add https://gitlab.com/$CI_PROJECT_PATH at mobile-v$MOBILE_VERSION. Android: info.zkas:zkas-mobile:$MOBILE_VERSION from this project's Maven registry. Proving stays on the daemon; this device verifies the prepared bundle and signs. No blind-signing call is exposed." \
+        --data-urlencode "assets[links][][name]=ZkasMobile.xcframework.zip" --data-urlencode "assets[links][][url]=$URL" \
+        --data-urlencode "assets[links][][name]=zkas-mobile-release.aar" --data-urlencode "assets[links][][url]=$API/packages/generic/zkas-mobile/$MOBILE_VERSION/zkas-mobile-release.aar" > /dev/null
+    - cd mobile/android && mkdir -p src/main/jniLibs src/main/java
+    - cp -r ../jniLibs/* src/main/jniLibs/ && cp -r ../kotlin/* src/main/java/
+    - gradle --no-daemon -PlibVersion=$MOBILE_VERSION publishReleasePublicationToGitLabRepository
