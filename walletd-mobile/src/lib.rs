@@ -181,7 +181,7 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, sock
     };
 
     let cfg = zkas_walletd::Config {
-        rpc_server: node_addr,
+        rpc_server: node_addr.clone(),
         listen,
         wallet_dir,
         network: "mainnet".to_string(),
@@ -252,6 +252,11 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, sock
             r.page_cache_entries = r.prefetch_depth + 2;
             // A phone must never be handed a whole-chain scan: refuse and explain.
             r.max_full_scan_blocks = Some(1_500_000);
+            // Published chain files: catch-up reads the 12-hour segments over HTTPS instead
+            // of paging the node (measured 14 days behind: 237 s -> 39-52 s). Only against
+            // ZKas's own public nodes (same operator), and never through Tor: the file fetch
+            // would leave the proxy the node connection uses.
+            r.chain_files = if socks.is_none() { zkas_walletd::chain_files::default_for_node(&node_addr) } else { None };
             r
         },
         idle_timeout: None,
