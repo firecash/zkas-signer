@@ -140,6 +140,19 @@ pub fn set_fast_sync(on: bool) {
     FAST_SYNC.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The chain-files address typed in the app's Fast sync row. Empty (or the public default)
+/// = the public files, used only against ZKas's public nodes. Anything else is the user's own
+/// choice and is used with whatever node they chose; its manifest must still be signed by the
+/// ZKas publisher key, so it can only be a mirror of the same files. Read at start.
+static CHAIN_FILES_URL: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new(String::new()));
+
+#[uniffi::export]
+pub fn set_chain_files_url(url: String) {
+    if let Ok(mut u) = CHAIN_FILES_URL.lock() {
+        *u = url.trim().trim_end_matches('/').to_string();
+    }
+}
+
 /// Tell the engine this app's memory ceiling (ActivityManager.getMemoryClass, or the large
 /// class when largeHeap is set). 0 = unknown, keep walletd's own sizing.
 #[uniffi::export]
@@ -273,7 +286,15 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, sock
                 log::info!("fast sync: off while the node is reached over Tor");
                 None
             } else {
-                let files = zkas_walletd::chain_files::default_for_node(&node_addr);
+                let custom = CHAIN_FILES_URL.lock().map(|u| u.clone()).unwrap_or_default();
+                let files = if custom.is_empty() || custom == zkas_walletd::chain_files::PUBLIC_CHAIN_FILES {
+                    zkas_walletd::chain_files::default_for_node(&node_addr)
+                } else if custom.starts_with("https://") || custom.starts_with("http://") {
+                    Some(custom)
+                } else {
+                    log::warn!("fast sync: ignoring the address {custom:?} (not an http(s) URL)");
+                    zkas_walletd::chain_files::default_for_node(&node_addr)
+                };
                 match &files {
                     Some(f) => log::info!("fast sync: on, catch-up from {f} (checked against {node_addr})"),
                     None => log::info!("fast sync: not used with {node_addr} (not a ZKas public node)"),
