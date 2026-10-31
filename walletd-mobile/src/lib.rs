@@ -130,6 +130,16 @@ fn engine_lock() -> std::sync::MutexGuard<'static, Option<Running>> {
 /// the "app closes during the sync, once per wallet" report.
 static MEM_BUDGET_MB: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// "Fast sync" in the app: read catch-up from the published chain files instead of paging
+/// the node. On unless the app says otherwise; it only ever applies against ZKas's own public
+/// nodes and never through Tor (see where `chain_files` is set in `start`). Read at start.
+static FAST_SYNC: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+#[uniffi::export]
+pub fn set_fast_sync(on: bool) {
+    FAST_SYNC.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Tell the engine this app's memory ceiling (ActivityManager.getMemoryClass, or the large
 /// class when largeHeap is set). 0 = unknown, keep walletd's own sizing.
 #[uniffi::export]
@@ -256,7 +266,20 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, sock
             // of paging the node (measured 14 days behind: 237 s -> 39-52 s). Only against
             // ZKas's own public nodes (same operator), and never through Tor: the file fetch
             // would leave the proxy the node connection uses.
-            r.chain_files = if socks.is_none() { zkas_walletd::chain_files::default_for_node(&node_addr) } else { None };
+            r.chain_files = if !FAST_SYNC.load(std::sync::atomic::Ordering::Relaxed) {
+                log::info!("fast sync: off (chosen in the app); every page comes from the node");
+                None
+            } else if socks.is_some() {
+                log::info!("fast sync: off while the node is reached over Tor");
+                None
+            } else {
+                let files = zkas_walletd::chain_files::default_for_node(&node_addr);
+                match &files {
+                    Some(f) => log::info!("fast sync: on, catch-up from {f} (checked against {node_addr})"),
+                    None => log::info!("fast sync: not used with {node_addr} (not a ZKas public node)"),
+                }
+                files
+            };
             r
         },
         idle_timeout: None,
