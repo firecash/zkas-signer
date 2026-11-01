@@ -306,7 +306,12 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, sock
                 None
             } else {
                 let custom = CHAIN_FILES_URL.lock().map(|u| u.clone()).unwrap_or_default();
-                let files = if custom.is_empty() || custom == zkas_walletd::chain_files::PUBLIC_CHAIN_FILES {
+                // The app's default address field shows zkas.info; it, or nothing, means the
+                // public mirrors (zkas.info and its CDN), not that one server alone.
+                let files = if custom.is_empty()
+                    || custom == zkas_walletd::chain_files::PUBLIC_CHAIN_FILES
+                    || custom == "https://zkas.info/shielded-chain"
+                {
                     zkas_walletd::chain_files::default_for_node(&node_addr)
                 } else if custom.starts_with("https://") || custom.starts_with("http://") {
                     Some(custom)
