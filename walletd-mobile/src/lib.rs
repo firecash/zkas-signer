@@ -170,6 +170,24 @@ pub fn set_debug_logs(on: bool) {
 /// Start the engine against `node_addr` (host:port gRPC), storing wallet data under
 /// `wallet_dir`, optionally unlocked with `secret`. Returns the bound loopback port,
 /// or 0 on failure. Idempotent: a second call while running returns the live port.
+/// Delete a shared chain-tree checkpoint left in the wallet folder. This engine never builds
+/// a shared tree (`build_shared_tree: false`), so the file can only be a leftover: public
+/// chain data, no keys, nothing of the user's. It used to be loaded into memory on every start
+/// (hundreds of MB on a phone) and its frozen size made wallets "borrow" a tree nobody was
+/// building — they lost their own tree, could not be checked against the node, and a phone
+/// was rebuilt from 35% at 88%. walletd no longer loads it; this frees the storage.
+fn remove_stale_shared_tree(dir: &str) {
+    for name in ["__chain.tree__.scan", "__chain.tree__.scan.bak", "__chain.tree__.anchors2"] {
+        let p = std::path::Path::new(dir).join(name);
+        if let Ok(m) = std::fs::metadata(&p) {
+            match std::fs::remove_file(&p) {
+                Ok(()) => log::info!("removed a leftover shared chain tree file {name} ({} MB); this engine does not build one", m.len() / 1_048_576),
+                Err(e) => log::warn!("could not remove the leftover shared chain tree file {name}: {e}"),
+            }
+        }
+    }
+}
+
 #[uniffi::export]
 pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, socks: Option<String>) -> u16 {
     install_logger();
@@ -178,6 +196,7 @@ pub fn start(node_addr: String, wallet_dir: String, secret: Option<String>, sock
     if let Some(r) = guard.as_ref() {
         return r.port;
     }
+    remove_stale_shared_tree(&wallet_dir);
     // Bind a free loopback port up front so the caller has the port immediately.
     let listener = match TcpListener::bind(("127.0.0.1", 0)) {
         Ok(l) => l,
