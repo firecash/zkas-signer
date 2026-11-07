@@ -19,7 +19,8 @@ let package = Package(
     name: "ZkasMobile",
     platforms: [.iOS(.v13)],
     products: [
-        .library(name: "ZkasMobile", targets: ["ZkasMobile"])
+        .library(name: "ZkasMobile", targets: ["ZkasMobile"]),
+        .library(name: "ZkasEngine", targets: ["ZkasEngine"]),
     ],
     targets: [
         .binaryTarget(
@@ -31,6 +32,25 @@ let package = Package(
             name: "ZkasMobile",
             dependencies: ["ZkasMobileFFI"],
             path: "Sources/ZkasMobile"
-        )
+        ),
+        // The on-device wallet engine: zkas-walletd on loopback. Versions are dated; the
+        // MANIFEST beside each zip names the zkas-rusty and zkas-signer revisions it holds.
+        // An app also links Security, SystemConfiguration, libresolv and libc++.
+        .binaryTarget(
+            name: "ZkasEngineFFI",
+            url: "https://gitlab.com/api/v4/projects/88003612/packages/generic/zkas-engine-ios/2026-11-07/ZkasEngine.xcframework.zip",
+            checksum: "a05f8b826dc69cc57dfa735d36ce866ed47696924428b1224ca78300a7995cbd"
+        ),
+        .target(
+            name: "ZkasEngine",
+            dependencies: ["ZkasEngineFFI"],
+            path: "Sources/ZkasEngine",
+            linkerSettings: [
+                .linkedFramework("Security"),
+                .linkedFramework("SystemConfiguration"),
+                .linkedLibrary("resolv"),
+                .linkedLibrary("c++"),
+            ]
+        ),
     ]
 )
