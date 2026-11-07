@@ -19,17 +19,7 @@ rand = "0.10"
 hex = "0.4"
 # Must be the SAME crate shielded-core uses (zakura-orchard since d749389), or
 # `SpendingKey` here and there are two unrelated types.
-#
-# Pinned EXACTLY, like every pin in the node workspace. Written as "1.0.1" this
-# was a caret range, and it had already floated to 1.2.0 in Cargo.lock — under
-# the very comment forbidding it. Nothing shipped wrong (the published WASM is
-# built from 1.0.1), but the next rebuild of this crate would silently put a
-# different version of the address-derivation and spend-authorisation code in
-# the wallet than the one the network runs.
-# Bumped for the security fork: shielded-core pins =2.2.0 and this crate links the
-# SAME shielded-core. At 1.0.1 the two majors coexist and SpendingKey here and
-# there become unrelated types — exactly what the note above warns about.
-orchard = { package = "zakura-orchard", version = "=2.2.0", default-features = false, features = ["std"] }
+orchard = { package = "zakura-orchard", version = "=2.2.0", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Recovery phrases. BIP-39 for the wordlist/checksum (the scheme every wallet and
@@ -47,3 +37,10 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 [profile.release]
 opt-level = "s"
 lto = true
+
+# The node workspace patches zakura-orchard 2.2.0 with one additive function
+# (`Note::from_parts_with_commitment`, zkas-rusty 0fb6f65) that kaspa-shielded-core calls.
+# A [patch] applies only in the workspace that declares it, so each package that builds
+# shielded-core from this repo repeats it (walletd-mobile already does).
+[patch.crates-io]
+zakura-orchard = { path = "../rusty-kaspa/patches/zakura-orchard-2.2.0" }

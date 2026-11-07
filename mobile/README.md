@@ -64,7 +64,7 @@ emulator (`device` job) before anything is published.
 or drop `zkas-mobile-release.aar` from the release straight into `libs/`.
 
 **iOS (SwiftPM):** add `https://zkas.info/code/signer` at tag
-`mobile-v0.1.3` — the root `Package.swift` pins that release's XCFramework by
+`mobile-v0.1.4` — the root `Package.swift` pins that release's XCFramework by
 checksum.
 
 Since `mobile-v0.1.3` the bindings are built on the Zakura Common Orchard stack
@@ -74,7 +74,7 @@ verifier can observe.
 
 ## Status
 
-Published: tag `mobile-v0.1.3` (AAR + XCFramework + Maven package + SwiftPM).
+Published: tag `mobile-v0.1.3` (AAR + Maven package); its XCFramework was lost with the GitHub account and `mobile-v0.1.4` (2026-11-07) republishes it, built on the Linux build box without Xcode, in the GitLab package registry and at https://zkas.info/downloads/ios/mobile/0.1.4/.
 Its binaries were hosted on GitHub and were lost with the suspended account on
 2026-10-23; they are being re-published to GitLab by the `publish` CI job (manual
 pipeline, `PUBLISH=true MOBILE_VERSION=0.1.3`), until which the Maven coordinate and
